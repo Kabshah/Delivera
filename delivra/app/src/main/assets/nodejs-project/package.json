@@ -1,0 +1,18 @@
+{
+  "name": "delivra-wa-engine",
+  "version": "1.0.0",
+  "description": "Delivra Node.js WhatsApp send engine — stateless bridge for Baileys",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "qrcode": "^1.5.3",
+    "pino": "^9.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Delivra</string>
+    <string name="channel_foreground_name">Active Send</string>
+    <string name="channel_foreground_desc">Shown briefly while a scheduled message is being sent</string>
+    <string name="channel_failure_name">Send Failures</string>
+    <string name="channel_failure_desc">Notifies when a scheduled message fails or needs review</string>
+    <string name="notif_failure_title">Message delivery issue</string>
+    <string name="notif_failure_text">Check Delivra for details</string>
+</resources>

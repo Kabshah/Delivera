@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Full-bleed solid dusty rose — EXACTLY matches the original mipmap PNG.
+    Vector (not shape) for maximum launcher compatibility. Because the color
+    reaches every edge of the 108dp canvas, the launcher's rounded-corner
+    mask is the ONLY thing you see: rounded dusty rose, zero white borders,
+    identical on every Android phone.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M0,0 L108,0 L108,108 L0,108 Z"
+        android:fillColor="#C17A70" />
+</vector>

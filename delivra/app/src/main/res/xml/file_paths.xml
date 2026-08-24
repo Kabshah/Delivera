@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- For diagnostics export temp files (§6.9) — generated on demand, not retained -->
+    <cache-path name="diagnostics" path="." />
+</paths>

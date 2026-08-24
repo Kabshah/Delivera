@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Adaptive icon foreground = THE ORIGINAL PNG ARTWORK, untouched.
+    The 192px legacy icon (64dp at this density bucket) is centered on the
+    108dp adaptive canvas. The solid rose background layer matches the
+    PNG's own rose exactly, so the art appears to float full-bleed.
+    Launcher mask supplies the rounded corners — no white borders ever.
+-->
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@drawable/ic_launcher_legacy"
+    android:gravity="center" />
