@@ -8,6 +8,10 @@ on:
   pull_request:
     branches: [ main ]
 
+# GITHUB_TOKEN needs contents:write to publish Releases (default is read-only)
+permissions:
+  contents: write
+
 # NOTE: this file MUST live at the REPO ROOT .github/workflows/ —
 # GitHub Actions ignores .github folders inside subdirectories.
 
