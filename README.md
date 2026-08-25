@@ -96,6 +96,24 @@ We'd rather over-explain than over-promise:
 
 ## 🧩 Architecture
 
+```
+┌───────────────────────────  Your phone  ───────────────────────────┐
+│                                                                    │
+│  Compose UI ──► Room DB ──► AlarmManager (exact)                   │
+│      ▲                            │  due time                      │
+│      │                            ▼                                │
+│  ViewModels         WorkManager backstop (OS minimum: 15 min)      │
+│                                 │                                  │
+│                                 ▼                                  │
+│                    SchedulerService (foreground)                   │
+│                          │            ▲                            │
+│                    starts Node.js localhost TCP :3000              │
+│                          ▼            │  (JSON lines bridge)       │
+│              Node.js runtime ─────────┘                            │
+│              └─ Baileys engine ──► WhatsApp (multi-device TLS)     │
+└────────────────────────────────────────────────────────────────────┘
+```
+
 - **Kotlin + Jetpack Compose** — UI, Room database, alarm/backstop scheduling, retry state machine
 - **Embedded Node.js (nodejs-mobile)** — hosts the Baileys WhatsApp engine inside the app process, started only when there is something to send
 - **Local TCP bridge** — correlation-id matched JSON channel between Kotlin and Node
