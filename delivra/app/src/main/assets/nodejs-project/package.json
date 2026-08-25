@@ -5,12 +5,13 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "postinstall": "node ../../../../../tools/minify-engine.mjs"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.9",
-    "qrcode": "^1.5.3",
-    "pino": "^9.4.0"
+    "pino": "^9.4.0",
+    "terser": "^5.36.0"
   },
   "engines": {
     "node": ">=18"

@@ -1,154 +1,87 @@
 # Delivra
 
-**Schedule WhatsApp messages to send automatically even if your screen is off.**
+**Schedule WhatsApp messages that send automatically — even when your phone is locked.**
 
-Send text, voice notes, and PDF/Word attachments to any WhatsApp contact at a specific date + time. No shared backend — everything runs on your own phone.
-
-> Distributed via [GitHub Releases](../../releases), not the Play Store.  
-> WhatsApp automation violates Play Store policy, so you install the APK directly from this repo.
-
----
-
-## ⚠️ Honesty Notes (please read before installing)
-
-- **Delivery is best-effort, not guaranteed exact-second.** The app aims to send within a few minutes of the scheduled time. OEM battery management (especially Samsung) can delay or drop wakeups even with everything configured correctly.
-- **WhatsApp linked sessions can expire** if your primary phone's WhatsApp goes completely offline for an extended period (historically ~14 days of no WhatsApp use). Normal daily use avoids this.
-- **`RECEIVE_BOOT_COMPLETED` permission** — the app uses this exclusively to reschedule alarms after your phone reboots. Without it, messages scheduled before a reboot wouldn't fire after restart.
-- **Attachments are read from their original location** — if you delete or move the file before the scheduled send time, that message will fail with a "source file unavailable" status rather than silently vanishing.
-- **Ambiguous send outcomes** — if the app crashes mid-send, the message may show as "Needs Review" rather than Sent or Failed. Check WhatsApp manually in this case to avoid duplicate sends.
-- **The 15-minute WorkManager interval** is an Android OS minimum, not a design flaw.
+Delivra is a fully on-device WhatsApp scheduler for Android. Pick a contact, pick a date &
+time, attach anything you like — Delivra wakes up on schedule, delivers the message through
+your own WhatsApp account, and goes back to sleep. No servers, no accounts, no cloud.
 
 ---
 
-## Installation
+## Overview
 
-### Requirements
-- Android 8.0+ (API 26+)
-- WhatsApp installed on the same phone
-
-### Steps
-1. Download `app-release-unsigned.apk` from [Releases](../../releases)
-2. Enable **Install from unknown sources** for your file manager or browser app
-3. Open the APK and install
-4. On first launch, follow the WhatsApp linking flow (pairing code)
-
-### ADB install (alternative)
-```bash
-adb install app-release-unsigned.apk
-```
-
----
-
-## First-time setup
-
-1. **Link WhatsApp**: open Delivra → enter your WhatsApp number → get an 8-character pairing code → on your WhatsApp app go to **Settings → Linked Devices → Link a Device → "Link with phone number instead"** → enter the code.
-2. **Grant permissions when prompted**:
-   - Exact alarm scheduling (Android 12+ only)
-   - Battery optimization exemption (strongly recommended for reliable delivery)
-3. If you're on **Samsung**, you may also need to add Delivra to your autostart list in Device Care settings (the app shows a prompt with instructions).
-
----
-
-## Build from source
-
-Want to build Delivra yourself instead of downloading a release? Here's how.
-
-### Prerequisites
-
-| Tool | Version | Notes |
-|---|---|---|
-| JDK | 17 | Temurin recommended; must be on your `PATH` or set as `JAVA_HOME` |
-| Android SDK | API 35 | Via [Android Studio](https://developer.android.com/studio) or `sdkmanager` |
-| Android NDK + CMake | Latest LTS | Required — the project compiles a native bridge (`CMakeLists.txt`) |
-| Node.js | 20+ | Only used once, to fetch the WhatsApp engine's npm dependencies |
-
-### 1. Clone the repo
-
-```bash
-git clone https://github.com/<your-username>/Delivra.git
-cd Delivra/delivra
-```
-
-> **Note:** `local.properties` is gitignored. If you don't have one, point the build at your SDK either by creating it manually:
->
-> ```properties
-> sdk.dir=C\:\\Users\\<you>\\AppData\\Local\\Android\\Sdk   # Windows example
-> ```
->
-> ...or by setting the `ANDROID_HOME` environment variable. Opening the project in Android Studio once does this automatically.
-
-### 2. Install Node.js dependencies (WhatsApp engine)
-
-The Baileys-based engine lives in `app/src/main/assets/nodejs-project` and gets bundled into the APK as-is:
-
-```bash
-cd app/src/main/assets/nodejs-project
-npm install --production
-cd ../../../../..
-```
-
-### 3. Build the APK
-
-**Windows (PowerShell / CMD):**
-```powershell
-.\gradlew.bat assembleDebug        # debug APK
-.\gradlew.bat assembleRelease      # unsigned release APK
-```
-
-**Linux / macOS:**
-```bash
-./gradlew assembleDebug            # debug APK
-./gradlew assembleRelease          # unsigned release APK
-```
-
-First build takes a while (Gradle + native toolchain downloads). Output lands here:
-
-```
-app/build/outputs/apk/debug/app-debug.apk
-app/build/outputs/apk/release/app-release-unsigned.apk
-```
-
-Then install it:
-
-```bash
-adb install app/build/outputs/apk/debug/app-debug.apk
-```
-
-### Using Docker (reproducible — same as CI)
-
-```bash
-docker build -t delivra-build .
-docker run --rm -v "$(pwd)":/workspace -w /workspace delivra-build ./gradlew assembleRelease
-```
-
----
-
-## Releases (GitHub Actions)
-
-This repo ships APKs automatically — no manual building required for end users:
-
-- **Every push / PR to `main`** → workflow `.github/workflows/build-apk.yml` builds debug + release APKs and uploads them as downloadable artifacts on the run page (**Actions → Build Delivra APK → artifacts**).
-- **Tagging a release** (`v1.0.0`, etc.) → the same workflow publishes a proper [GitHub Release](../../releases) with both APKs attached:
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-Release APKs are **unsigned**, so installers need "Install from unknown sources" enabled (or use `adb install`).
-
----
-
-## Permissions explained
-
-| Permission | Why |
+| | |
 |---|---|
-| `RECEIVE_BOOT_COMPLETED` | Reschedule alarms after reboot — nothing else |
-| `SCHEDULE_EXACT_ALARM` | Required for exact-time message delivery on Android 12+ |
-| `FOREGROUND_SERVICE` | Runs briefly while sending a message, then stops |
-| `POST_NOTIFICATIONS` | Shows failure / "Needs Review" alerts |
-| `INTERNET` | WhatsApp Web multi-device protocol |
-| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Prompted once during onboarding to improve delivery reliability |
+| **What it does** | Schedules WhatsApp messages (text, voice notes, images, PDFs/docs) and sends them automatically at the chosen moment |
+| **How it sends** | Links to your WhatsApp as a *companion device* (same protocol as WhatsApp Web) and delivers through your account |
+| **Where data lives** | Entirely on your phone — schedules, session keys, attachments. There is no backend server |
+| **Battery philosophy** | Connect-on-demand: the app runs only for a couple of minutes around each scheduled send, never in the background otherwise |
+
+### Features
+
+- 📅 Exact date + time scheduling with timezone-safe alarms
+- 💬 Text, 🎙 voice notes (real WhatsApp PTT), 🖼 inline images, 📎 PDF/Word/document attachments
+- 🔁 Automatic retries with backoff, failure notifications, and a "Needs Review" safety state so nothing double-sends silently
+- 🌙 Screen-off delivery via exact alarms + battery-optimization exemption (one-tap toggle inside the app)
+- 👤 Contact suggestions from your phone book
+- 📦 Two slim APKs (~56 MB) covering every phone from 2017 onwards — Android 8.0+
+
+---
+
+## Download & Install
+
+**⬇ [Download for most phones — arm64-v8a](https://github.com/Kabshah/Delivera/releases/latest/download/Delivra-arm64-v8a.apk)**  
+Samsung · Xiaomi · OnePlus · Pixel · Redmi · Realme · Vivo · Oppo — every phone sold since ~2017. *Start here.*
+
+**⬇ [Download for older 32-bit phones — armeabi-v7a](https://github.com/Kabshah/Delivera/releases/latest/download/Delivra-armeabi-v7a.apk)**  
+Only if the arm64 APK refuses to install.
+
+> Both buttons always fetch the newest release directly — no need to browse GitHub Releases.
+> Using an old version? The original v1.0 remains available in [past releases](../../releases).
+
+### Install steps
+
+1. Tap a button above to download the APK
+2. Open the downloaded file; allow **"Install from unknown sources"** if asked
+3. Open Delivra → enter your WhatsApp number → you'll get an 8-character code
+4. In WhatsApp: **Settings → Linked Devices → Link a Device → "Link with phone number instead"** → enter the code
+5. Toggle **Reliable delivery** ON (Home screen) so scheduled sends work while the screen is off
+
+---
+
+## ⚠️ Honesty Notes
+
+Please read before installing — we'd rather over-explain than over-promise:
+
+- **Delivery is near-scheduled, not second-perfect.** Messages normally go out within a few
+  minutes of the target time. OEM power management (especially Samsung) can occasionally delay wakeups.
+- **The Reliable delivery toggle matters.** Android blocks network access in deep sleep;
+  without the battery-optimization exemption, screen-off sends will fail. The app asks once — allowing it costs no extra battery because Delivra still only wakes for its own sends.
+- **WhatsApp linked sessions can expire** after long periods without any WhatsApp activity
+  (historically ~14 days). Normal daily use avoids this.
+- **Attachments must stay reachable.** Files are read at send time — deleting or moving an
+  attachment before its schedule causes a clear "source file unavailable" failure, not a silent drop.
+- **Crash mid-send = "Needs Review".** If the app dies during a send, the outcome is ambiguous,
+  so the message lands in Needs Review for a manual check instead of risking a duplicate.
+- **RECEIVE_BOOT_COMPLETED** exists solely to re-register alarms after a reboot — nothing else.
+- **The 15-minute WorkManager interval** is an OS minimum, not a design choice.
+
+---
+
+## Permissions Explained
+
+| Permission | Why it's needed |
+|---|---|
+| `INTERNET` | Speak the WhatsApp Web multi-device protocol |
+| `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM` | Fire sends at the precise minute you picked |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Lets the app ask (once) to be exempt from Doze so screen-off sends reach the network |
+| `FOREGROUND_SERVICE` (+ `connectedDevice` type) | Runs briefly around each send; shows a small notification while working |
+| `RECEIVE_BOOT_COMPLETED` | Re-register all pending schedules after reboot — nothing more |
+| `WAKE_LOCK` | Keep the CPU awake for the few minutes a dispatch takes |
+| `POST_NOTIFICATIONS` | Failure alerts and the temporary "sending…" notification |
+| `READ_CONTACTS` | Name/photo suggestions while composing a message |
+| `RECORD_AUDIO` | In-app voice-note recording |
+| `READ_EXTERNAL_STORAGE` (≤ Android 12) | Legacy read path for attachments picked via SAF |
 
 ---
 
@@ -160,7 +93,7 @@ Release APKs are **unsigned**, so installers need "Install from unknown sources"
 │  Compose UI ──► Room DB ──► AlarmManager (exact)                   │
 │      ▲                            │  due time                      │
 │      │                            ▼                                │
-│  ViewModels              WorkManager backstop (15 min net)         │
+│  ViewModels         WorkManager backstop (OS minimum: 15 min)      │
 │                                 │                                  │
 │                                 ▼                                  │
 │                    SchedulerService (foreground)                   │
@@ -172,6 +105,11 @@ Release APKs are **unsigned**, so installers need "Install from unknown sources"
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Kotlin / Jetpack Compose** — UI, Room database, AlarmManager scheduling, WorkManager backstop
-- **Node.js (nodejs-mobile-android) + Baileys** — WhatsApp Web multi-device protocol, runs inside a Foreground Service only when actively sending
-- **Fully on-device** — no shared backend, no cloud, no analytics
+- **Kotlin + Jetpack Compose** — UI, Room database, alarm/backstop scheduling, retry state machine
+- **Embedded Node.js (nodejs-mobile)** — hosts the Baileys WhatsApp engine inside the same app process, started only when there is something to send
+- **Local TCP bridge** — typed JSON request/response channel between Kotlin and Node, correlation-id matched
+- **Fully offline-first** — no shared backend, no analytics, no telemetry; the only network traffic is with WhatsApp itself
+
+---
+
+*Delivra is an independent utility and is not affiliated with WhatsApp or Meta.*

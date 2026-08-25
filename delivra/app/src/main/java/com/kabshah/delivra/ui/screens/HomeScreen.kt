@@ -55,8 +55,11 @@ fun HomeScreen(
     onMessageClick: (String) -> Unit,
     onLinkWhatsApp: () -> Unit = {},
     onSettings: () -> Unit = {},
+    hasBatteryOptExemption: Boolean = true,
+    onToggleReliableDelivery: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+
     Box(modifier = modifier.fillMaxSize().background(SurfaceBase)) {
         Column(modifier = Modifier.fillMaxSize()) {
             // ── Header ─────────────────────────────────────────────────────
@@ -71,6 +74,11 @@ fun HomeScreen(
                 onSettings = onSettings
             )
 
+                    // ── Reliable delivery toggle (battery optimization) ────────────
+            ReliableDeliveryCard(
+                enabled = hasBatteryOptExemption,
+                onToggle = { onToggleReliableDelivery(!hasBatteryOptExemption) }
+            )
             // ── Message list ───────────────────────────────────────────────
             val filtered = remember(messages, searchQuery) {
                 if (searchQuery.isBlank()) messages
@@ -142,6 +150,56 @@ fun HomeScreen(
             ) {
                 Icon(Icons.Default.Add, contentDescription = "New Message", tint = Color.White)
             }
+        }
+    }
+}
+
+@Composable
+private fun ReliableDeliveryCard(
+    enabled: Boolean,
+    onToggle: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 20.dp, top = 10.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = if (enabled) SurfaceCard else StatusPendingBg.copy(alpha = 0.55f)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                if (enabled) Icons.Outlined.BatteryChargingFull else Icons.Outlined.BatteryAlert,
+                contentDescription = null,
+                tint = if (enabled) StatusSentFg else StatusPendingFg,
+                modifier = Modifier.size(22.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Reliable delivery",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                Text(
+                    if (enabled) "Sends on time even with the screen off. No extra battery use — the app only wakes for scheduled sends."
+                    else "OFF — Android may block sends while the screen is off. Tap to allow.",
+                    fontSize = 11.sp,
+                    color = TextSecondary,
+                    lineHeight = 15.sp
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = { onToggle() },
+                colors = SwitchDefaults.colors(
+                    checkedTrackColor = RosePrimary,
+                    checkedThumbColor = Color.White
+                )
+            )
         }
     }
 }

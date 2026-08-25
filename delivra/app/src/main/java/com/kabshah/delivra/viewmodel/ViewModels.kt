@@ -56,6 +56,7 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
+    private val _permissionTick = MutableStateFlow(0)
 
     val uiState: StateFlow<HomeUiState> = combine(
         repository.observeAll(),
@@ -63,7 +64,8 @@ class HomeViewModel @Inject constructor(
         repository.observeSentCount(),
         repository.observeFailedCount(),
         repository.observeNeedsReviewCount(),
-        _searchQuery
+        _searchQuery,
+        _permissionTick
     ) { arr ->
         @Suppress("UNCHECKED_CAST")
         val messages = arr[0] as List<ScheduledMessage>
@@ -85,6 +87,39 @@ class HomeViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeUiState())
 
     fun onSearchQueryChange(q: String) { _searchQuery.value = q }
+
+    /** Called when Home comes back to the foreground — re-checks permission
+     *  flags so the battery banner disappears right after the user grants. */
+    fun onScreenResumed() { _permissionTick.value += 1 }
+
+    /**
+     * Toggle handler from the Home screen.
+     * ON  → opens the one-tap system dialog to exempt Delivra from Doze/battery
+     *       optimization (what makes scheduled sends survive a locked screen).
+     * OFF → Android gives an app no API to revoke its own exemption, so open
+     *       the system list where the user can remove it themselves.
+     */
+    fun onToggleReliableDelivery(enable: Boolean) {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        if (enable && pm.isIgnoringBatteryOptimizations(context.packageName)) return
+        try {
+            context.startActivity(
+                android.content.Intent(
+                    if (enable) android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                    else android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
+                    if (enable) android.net.Uri.parse("package:${context.packageName}") else null
+                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            // Some OEM ROMs strip the direct dialog — fall back to the list UI.
+            try {
+                context.startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (_: Exception) { /* nothing else we can do */ }
+        }
+    }
 
     fun deleteMessage(id: String) {
         viewModelScope.launch {

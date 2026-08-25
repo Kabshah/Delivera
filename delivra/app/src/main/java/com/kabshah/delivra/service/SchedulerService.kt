@@ -57,7 +57,17 @@ class SchedulerService : Service() {
             return
         }
 
-        val destDir = File(filesDir, "nodejs-project")
+        val destDir = File(cacheDir, "nodejs-project")
+
+        // Size pass (v1.1): the engine's runtime copy moved from filesDir to
+        // cacheDir — cache isn't counted toward the app's storage quota shown
+        // in Settings and is reclaimable by the OS under pressure. Safety:
+        // the version marker lives inside destDir, so if the OS ever wipes
+        // the cache the very next service start re-extracts automatically.
+        // The linked WhatsApp session (filesDir/wa_session) is NOT touched.
+        // One-time migration: drop the pre-1.1 copy from filesDir.
+        File(filesDir, "nodejs-project").deleteRecursively()
+
         val nodeModulesDir = File(destDir, "node_modules")
         val versionMarker = File(destDir, ".delivra-assets-version")
         val isUpToDate = versionMarker.exists() &&
@@ -68,12 +78,12 @@ class SchedulerService : Service() {
         }
 
         // Full refresh runs on first boot and whenever NODEJS_ASSETS_VERSION is
-        // bumped. copyAssetsToFilesIfNeeded overwrites every .js/.json from the
-        // APK — this is how patches inside node_modules (e.g. Baileys tmpdir
-        // fix) actually reach the device. The old "update main scripts only"
-        // path silently kept stale node_modules files and cost us days.
+        // bumped. The old tree is deleted first (not just overwritten) so files
+        // removed from the APK — e.g. pruned node_modules junk — disappear from
+        // internal storage too instead of accumulating forever.
         if (!isUpToDate) {
-            Log.d(TAG, "Assets changed (want v$NODEJS_ASSETS_VERSION) — refreshing all JS/JSON...")
+            Log.d(TAG, "Assets changed (want v$NODEJS_ASSETS_VERSION) — wiping + refreshing all JS/JSON...")
+            destDir.deleteRecursively()
             copyAssetsToFilesIfNeeded("nodejs-project")
             versionMarker.writeText(NODEJS_ASSETS_VERSION)
         } else {
@@ -167,12 +177,14 @@ class SchedulerService : Service() {
     }
 
     /**
-     * Recursively copies assets/[srcDir] into filesDir/[srcDir], skipping files
-     * that already exist with the same size (cheap dirty-check, avoids full hash
-     * on every startup while still catching APK updates that change a file).
+     * Recursively copies assets/[srcDir] into cacheDir/[srcDir] (the engine's
+     * runtime home since the v1.1 size pass — see setupNodeRuntime), skipping
+     * files that already exist with the same size (cheap dirty-check, avoids
+     * full hash on every startup while still catching APK updates that change
+     * a file).
      */
     private fun copyAssetsToFilesIfNeeded(srcDir: String) {
-        val destDir = File(filesDir, srcDir)
+        val destDir = File(cacheDir, srcDir)
         if (!destDir.exists()) destDir.mkdirs()
         assets.list(srcDir)?.forEach { name ->
             val srcPath = "$srcDir/$name"
@@ -206,13 +218,14 @@ class SchedulerService : Service() {
         val keepAlive = intent?.getBooleanExtra("keep_alive", false) ?: false
 
         serviceScope.launch {
+            var wakeLock: android.os.PowerManager.WakeLock? = null
             try {
                 // Wait for bridge channel to be initialized by setupNodeRuntime
                 val deadline = System.currentTimeMillis() + 30_000L
                 while (!nodeBridge.isChannelInitialized && System.currentTimeMillis() < deadline) {
                     delay(200)
                 }
-                
+
                 if (!nodeBridge.isChannelInitialized) {
                     throw IllegalStateException("Timed out waiting for Node TCP server to initialize channel")
                 }
@@ -220,6 +233,15 @@ class SchedulerService : Service() {
                 if (keepAlive || messageIds.isEmpty()) {
                     Log.d(TAG, "onStartCommand: keep_alive mode or no messages to send, leaving runtime up for UI.")
                     return@launch
+                }
+
+                // Actual dispatch ahead — hold the CPU through Node-boot/Baileys-
+                // connect/send. Acquired ONLY here (never for idle warm-ups) and
+                // hard-capped, so normal app usage draws zero extra battery.
+                val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+                wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Delivra:dispatch").apply {
+                    setReferenceCounted(false)
+                    acquire(DISPATCH_WAKELOCK_TIMEOUT_MS)
                 }
 
                 // Connect once — Baileys will auto-restore the saved session (§2.3)
@@ -235,6 +257,7 @@ class SchedulerService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "Dispatch error: ${e.message}", e)
             } finally {
+                try { wakeLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
                 if (!keepAlive) {
                     nodeBridge.disconnect()
                     stopSelf(startId)
@@ -306,6 +329,9 @@ class SchedulerService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val EXTRA_MESSAGE_IDS = "message_ids"
 
+        /** Hard cap for the dispatch wakelock: Node boot + connect + batch send. */
+        private const val DISPATCH_WAKELOCK_TIMEOUT_MS = 3 * 60 * 1000L
+
         /**
          * Bump whenever ANY file under assets/nodejs-project changes — especially
          * patches inside node_modules (Baileys tmpdir fix, crypto.js, etc.).
@@ -315,8 +341,14 @@ class SchedulerService : Service() {
          *               stale-event guard + no-reconnect-on-intentional-close)
          *               + sender.js per-part send tracking (no duplicate voice
          *               notes on retry of voice+doc+text messages).
+         *          v8 = size optimization release: stripped libnode.so, ABI
+         *               splits, pruned node_modules (host sharp binaries,
+         *               @types/node, test/docs junk). Full wipe+re-extract
+         *               removes those files from existing installs.
+         *          v9 = terser-minified Baileys/WAProto (-6 MB on device),
+         *               engine runtime home moved to cacheDir.
          */
-        private const val NODEJS_ASSETS_VERSION = "7"
+        private const val NODEJS_ASSETS_VERSION = "9"
 
         @Volatile
         private var isNodeStarted = false

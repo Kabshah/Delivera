@@ -11,8 +11,11 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <!-- No REQUEST_IGNORE_BATTERY_OPTIMIZATIONS — the app is battery-efficient by design (§2.5):
-         connect-on-demand, no polling, setExactAndAllowWhileIdle fires through Doze -->
+    <!-- Lets the app ASK (one system dialog) to be exempt from Doze/battery
+         optimization. Without exemption Android blocks network access while
+         the screen is off, which kills scheduled sends. The prompt is shown
+         once from Home/Settings; declining only costs reliability, nothing else. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- For reading files via SAF persistent URI -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
