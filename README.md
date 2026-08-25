@@ -11,8 +11,8 @@ Send text, voice notes, and PDF/Word attachments to any WhatsApp contact at a sp
 
 | | |
 |---|---|
-| **Most phones (2017 onward)** — Samsung, Xiaomi, OnePlus, Pixel, Redmi, Realme… | **[⬇ Download arm64-v8a APK](https://github.com/Kabshah/Delivera/releases/latest/download/app-arm64-v8a-release.apk)** |
-| Older / entry-level 32-bit-only phones | [⬇ Download armeabi-v7a APK](https://github.com/Kabshah/Delivera/releases/latest/download/app-armeabi-v7a-release.apk) |
+| **Most phones (2017 onward)** — Samsung, Xiaomi, OnePlus, Pixel, Redmi, Realme… | **[⬇ Download arm64-v8a APK](https://github.com/Kabshah/Delivera/releases/latest/download/Delivra-arm64-v8a.apk)** |
+| Older / entry-level 32-bit-only phones | [⬇ Download armeabi-v7a APK](https://github.com/Kabshah/Delivera/releases/latest/download/Delivra-armeabi-v7a.apk) |
 
 These buttons always fetch the **newest release** automatically. Looking for the original v1.0 build? It's preserved in [older releases](https://github.com/Kabshah/Delivera/releases) and on the [`v1` branch](../../tree/v1).
 

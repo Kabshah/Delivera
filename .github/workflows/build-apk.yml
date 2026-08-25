@@ -63,21 +63,32 @@ jobs:
       - name: Build release APKs (per-ABI splits, unsigned)
         run: ./gradlew assembleRelease --no-daemon
 
+      # Gradle emits *-unsigned.apk names for split release builds; stage them
+      # under clean STATIC names so the README's releases/latest/download
+      # permalinks keep working across future versions.
+      - name: Stage APKs with friendly names
+        run: |
+          mkdir -p "${{ github.workspace }}/dist"
+          cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk        "${{ github.workspace }}/dist/Delivra-arm64-v8a-debug.apk"
+          cp app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk      "${{ github.workspace }}/dist/Delivra-armeabi-v7a-debug.apk"
+          cp app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk   "${{ github.workspace }}/dist/Delivra-arm64-v8a.apk"
+          cp app/build/outputs/apk/release/app-armeabi-v7a-release-unsigned.apk "${{ github.workspace }}/dist/Delivra-armeabi-v7a.apk"
+
       - name: Upload debug APKs
         uses: actions/upload-artifact@v4
         with:
           name: delivra-debug
           path: |
-            delivra/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
-            delivra/app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk
+            dist/*arm64-v8a-debug.apk
+            dist/*armeabi-v7a-debug.apk
 
       - name: Upload release APKs
         uses: actions/upload-artifact@v4
         with:
           name: delivra-release-unsigned
           path: |
-            delivra/app/build/outputs/apk/release/app-arm64-v8a-release.apk
-            delivra/app/build/outputs/apk/release/app-armeabi-v7a-release.apk
+            dist/*arm64-v8a.apk
+            dist/*armeabi-v7a.apk
 
       # On tag push: attach APKs to a GitHub Release
       - name: Create GitHub Release
@@ -85,8 +96,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            delivra/app/build/outputs/apk/release/app-arm64-v8a-release.apk
-            delivra/app/build/outputs/apk/release/app-armeabi-v7a-release.apk
+            dist/Delivra-arm64-v8a.apk
+            dist/Delivra-armeabi-v7a.apk
           body: |
             ## Delivra ${{ github.ref_name }}
 
@@ -94,12 +105,12 @@ jobs:
 
             | File | For devices |
             |---|---|
-            | `app-arm64-v8a-release.apk` | **Almost every phone from ~2017 onwards** (Snapdragon, Exynos, Dimensity, Unisoc T6xx+…) — start here |
-            | `app-armeabi-v7a-release.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
+            | `Delivra-arm64-v8a.apk` | **Almost every phone from ~2017 onwards** (Snapdragon, Exynos, Dimensity, Unisoc T6xx+…) — start here |
+            | `Delivra-armeabi-v7a.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
 
             ### Installation
             ```bash
-            adb install app-arm64-v8a-release.apk
+            adb install Delivra-arm64-v8a.apk
             ```
             Or transfer to your phone and open with a file manager.
 
