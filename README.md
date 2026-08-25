@@ -165,7 +165,7 @@ Release APKs are **unsigned**, so installers need "Install from unknown sources"
 │                                 ▼                                  │
 │                    SchedulerService (foreground)                   │
 │                          │            ▲                            │
-│                    starts Node   localhost TCP :3000               │
+│                    starts Node.js localhost TCP :3000              │
 │                          ▼            │  (JSON lines bridge)       │
 │              Node.js runtime ─────────┘                            │
 │              └─ Baileys engine ──► WhatsApp (multi-device TLS)     │
