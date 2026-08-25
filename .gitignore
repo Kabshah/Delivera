@@ -52,9 +52,19 @@ yarn-error.log*
 
 # --------------------------------------------------------------------
 # Signing keys / certificates — never commit secrets
+#
+# EXCEPTION: delivra/keystore/delivra-release.keystore IS committed on
+# purpose. Android cannot install unsigned APKs, and updates must carry
+# the same signature as the installed build — so the release key must be
+# available to every CI run forever. For an open-source sideload-only app
+# this public key is an accepted tradeoff (documented in
+# app/build.gradle.kts); override via DELIVRA_STORE_FILE /
+# DELIVRA_STORE_PASSWORD / DELIVRA_KEY_ALIAS / DELIVRA_KEY_PASSWORD env
+# vars to sign privately instead.
 # --------------------------------------------------------------------
 *.jks
 *.keystore
+!delivra/keystore/delivra-release.keystore
 *.p8
 *.p12
 *.pem

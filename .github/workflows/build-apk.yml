@@ -60,19 +60,18 @@ jobs:
       - name: Build debug APKs (per-ABI splits)
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Build release APKs (per-ABI splits, unsigned)
+      - name: Build release APKs (per-ABI splits, signed with the committed release key)
         run: ./gradlew assembleRelease --no-daemon
 
-      # Gradle emits *-unsigned.apk names for split release builds; stage them
-      # under clean STATIC names so the README's releases/latest/download
-      # permalinks keep working across future versions.
+      # Release APKs are SIGNED by app/build.gradle.kts (committed keystore) —
+      # Gradle emits plain *-release.apk names. Debug APKs keep their names.
       - name: Stage APKs with friendly names
         run: |
           mkdir -p "${{ github.workspace }}/dist"
           cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk        "${{ github.workspace }}/dist/Delivra-arm64-v8a-debug.apk"
           cp app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk      "${{ github.workspace }}/dist/Delivra-armeabi-v7a-debug.apk"
-          cp app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk   "${{ github.workspace }}/dist/Delivra-arm64-v8a.apk"
-          cp app/build/outputs/apk/release/app-armeabi-v7a-release-unsigned.apk "${{ github.workspace }}/dist/Delivra-armeabi-v7a.apk"
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk    "${{ github.workspace }}/dist/Delivra-arm64-v8a.apk"
+          cp app/build/outputs/apk/release/app-armeabi-v7a-release.apk  "${{ github.workspace }}/dist/Delivra-armeabi-v7a.apk"
 
       - name: Upload debug APKs
         uses: actions/upload-artifact@v4
@@ -101,7 +100,7 @@ jobs:
           body: |
             ## Delivra ${{ github.ref_name }}
 
-            **Two APK variants — pick the one matching your CPU (unsigned, so enable "Install from unknown sources" or use adb):**
+            **Two APK variants — pick the one matching your CPU:**
 
             | File | For devices |
             |---|---|

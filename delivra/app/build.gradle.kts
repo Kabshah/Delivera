@@ -27,8 +27,8 @@ android {
         applicationId = "com.kabshah.delivra"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
         externalNativeBuild {
@@ -54,6 +54,24 @@ android {
         }
     }
 
+    // ── Release signing ──────────────────────────────────────────────────────
+    // A stable signing key is REQUIRED: Android refuses to install unsigned
+    // APKs ("package appears to be invalid"), and updates must carry the same
+    // signature as the installed version. The keystore is committed so CI and
+    // local builds produce identical signatures forever. Credentials can be
+    // overridden via env vars without touching this file.
+    signingConfigs {
+        create("release") {
+            storeFile = file(
+                System.getenv("DELIVRA_STORE_FILE")
+                    ?: rootProject.file("keystore/delivra-release.keystore")
+            )
+            storePassword = System.getenv("DELIVRA_STORE_PASSWORD") ?: "delivra2026"
+            keyAlias = System.getenv("DELIVRA_KEY_ALIAS") ?: "delivra"
+            keyPassword = System.getenv("DELIVRA_KEY_PASSWORD") ?: "delivra2026"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -62,6 +80,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isMinifyEnabled = false
