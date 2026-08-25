@@ -223,6 +223,12 @@ val pruneNodeModules = tasks.register("pruneNodeModules") {
             removePath(File(nodeModulesDir, pkg))
         }
 
+        // 2f. npm's CLI shim directory. On Linux these are SYMLINKS into the
+        //     pruned-away toolchain packages, leaving dangling links that crash
+        //     lintVitalRelease ("Couldn't read file content: .../.bin/acorn").
+        //     The engine never invokes binaries from .bin at runtime.
+        removePath(File(nodeModulesDir, ".bin"))
+
         // 3. Tests / docs / benchmarks inside packages (paths relative to node_modules)
         listOf(
             "pino/test", "pino/benchmarks", "pino/docs", "pino/docsify", "pino/examples", "pino/.github",
