@@ -44,14 +44,24 @@ No servers. No accounts. No cloud.
 | **Where your data lives** | Entirely on your phone: schedules, session keys, attachments. No backend server, no analytics, no telemetry |
 | **Battery philosophy** | Connect-on-demand: the app runs only ~2 minutes around each scheduled send. The rest of the time it does not exist |
 
-### Feature highlights
+---
 
-- Exact date + time scheduling, timezone-safe by design
-- Text, real PTT voice notes, inline photos, PDF / Word / any document
-- Screen-off delivery - exact alarms + battery-optimization exemption behind a one-tap in-app toggle
-- Smart retry ladder with backoff, failure notifications, and a "Needs Review" state so nothing double-sends silently
-- Contact suggestions straight from your phone book
-- Slim per-CPU APKs (~56 MB) - Android 8.0+, every phone from 2017 onwards
+## ✨ Feature Highlights
+
+### 🗓️ Exact Date & Time Scheduling
+Schedule messages precisely with timezone-safe date and time handling.
+
+### 💬 Rich Message Support
+Send text messages, real PTT voice notes, inline photos, PDFs, Word files, and other documents.
+
+### 🌙 Screen-Off Delivery
+Reliable scheduled delivery even when the screen is off, using exact alarms and a one-tap battery-optimization setup.
+
+### 🔄 Smart Retry System
+Automatic retries with backoff, failure notifications, and a **Needs Review** state to prevent silent duplicate sends.
+
+### 👥 Contact Suggestions
+Get contact suggestions directly from your phone book for faster message scheduling.
 
 ---
 
@@ -62,20 +72,6 @@ No servers. No accounts. No cloud.
 3. Open Delivra, enter your WhatsApp number, receive an 8-character code
 4. In WhatsApp: **Settings > Linked Devices > Link a Device > "Link with phone number instead"**, type the code
 5. Flip the **Reliable delivery** toggle on the Home screen - this makes scheduled sends survive a locked screen
-
----
-
-## Honesty Notes
-
-We would rather over-explain than over-promise:
-
-- **Delivery is near-scheduled, not second-perfect.** Messages normally go out within minutes of the target time; aggressive OEM power management (especially Samsung) can occasionally delay wakeups.
-- **The Reliable delivery toggle matters.** Android cuts network access in deep sleep - without the exemption, screen-off sends fail. Allowing it costs no extra battery: Delivra still wakes only for its own sends.
-- **Linked sessions can expire** after long periods without any WhatsApp activity (historically ~14 days).
-- **Attachments must stay reachable.** Files are read at send time; deleting or moving one before its schedule produces a clear "source file unavailable" failure instead of a silent drop.
-- **Crash mid-send means "Needs Review".** An ambiguous outcome is surfaced for manual checking rather than risking an unnoticed duplicate.
-- **RECEIVE_BOOT_COMPLETED** exists purely to restore alarms after reboot.
-- **The 15-minute WorkManager interval** is an Android OS floor, not our choice.
 
 ---
 
@@ -105,6 +101,4 @@ We would rather over-explain than over-promise:
 
 ---
 
-> Looking for the **old version**? The original v1.0 build is preserved separately in [past releases](../../releases) and on the [`v1` branch](../../tree/v1).
-
-*Delivra is an independent utility and is not affiliated with WhatsApp or Meta.*
+>  *Delivra is an independent productivity and scheduling utility for WhatsApp messaging. It is not affiliated with, endorsed by, or officially connected to WhatsApp or Meta.*
