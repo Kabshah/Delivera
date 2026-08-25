@@ -154,6 +154,24 @@ Release APKs are **unsigned**, so installers need "Install from unknown sources"
 
 ## Architecture
 
+```
+┌───────────────────────────  Your phone  ───────────────────────────┐
+│                                                                    │
+│  Compose UI ──► Room DB ──► AlarmManager (exact)                   │
+│      ▲                            │  due time                      │
+│      │                            ▼                                │
+│  ViewModels              WorkManager backstop (15 min net)         │
+│                                 │                                  │
+│                                 ▼                                  │
+│                    SchedulerService (foreground)                   │
+│                          │            ▲                            │
+│                    starts Node   localhost TCP :3000               │
+│                          ▼            │  (JSON lines bridge)       │
+│              Node.js runtime ─────────┘                            │
+│              └─ Baileys engine ──► WhatsApp (multi-device TLS)     │
+└────────────────────────────────────────────────────────────────────┘
+```
+
 - **Kotlin / Jetpack Compose** — UI, Room database, AlarmManager scheduling, WorkManager backstop
 - **Node.js (nodejs-mobile-android) + Baileys** — WhatsApp Web multi-device protocol, runs inside a Foreground Service only when actively sending
 - **Fully on-device** — no shared backend, no cloud, no analytics
