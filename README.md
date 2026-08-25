@@ -75,6 +75,14 @@ Get contact suggestions directly from your phone book for faster message schedul
 
 ---
 
+## Screenshots
+
+| Message Screen                                                                       | Scheduled Message                                                                    | Home Screen                                                                       |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| ![](https://github.com/user-attachments/assets/f31a0265-61b9-42c3-9c90-3276f50e6456) | ![](https://github.com/user-attachments/assets/3903556b-f159-4d3a-a065-5a2a550b348c) | ![](https://github.com/user-attachments/assets/56b13f53-571b-4b3b-8687-dbf522821b59) |
+
+
+
 ## Permissions Explained
 
 | Permission | Why |
