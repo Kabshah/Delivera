@@ -27,14 +27,16 @@ Send text, voice notes, and PDF/Word attachments to any WhatsApp contact at a sp
 - WhatsApp installed on the same phone
 
 ### Steps
-1. Download `app-release-unsigned.apk` from [Releases](../../releases)
+1. Download the APK for your CPU from [Releases](../../releases):
+   - **`app-arm64-v8a-release.apk`** — almost every phone from ~2017 onwards (Samsung, Xiaomi, OnePlus, Pixel, Redmi, Realme…). **Start with this one.**
+   - **`app-armeabi-v7a-release.apk`** — only for older / entry-level 32-bit-only phones. Try this if the arm64 APK says "app not installed".
 2. Enable **Install from unknown sources** for your file manager or browser app
 3. Open the APK and install
 4. On first launch, follow the WhatsApp linking flow (pairing code)
 
 ### ADB install (alternative)
 ```bash
-adb install app-release-unsigned.apk
+adb install app-arm64-v8a-release.apk
 ```
 
 ---
@@ -87,31 +89,29 @@ npm install --production
 cd ../../../../..
 ```
 
+> **Note:** npm installs sharp's image-codec binaries for whatever OS *builds* the app (Windows/Linux/macOS). Those can never load on Android — the app's `build.gradle.kts` excludes them (plus `@types/*` and package-shipped test/docs) at packaging time, so you don't need to clean anything manually.
+
 ### 3. Build the APK
 
 **Windows (PowerShell / CMD):**
 ```powershell
-.\gradlew.bat assembleDebug        # debug APK
-.\gradlew.bat assembleRelease      # unsigned release APK
+.\gradlew.bat assembleDebug        # debug APKs (per-ABI)
+.\gradlew.bat assembleRelease      # unsigned release APKs (per-ABI)
 ```
 
 **Linux / macOS:**
 ```bash
-./gradlew assembleDebug            # debug APK
-./gradlew assembleRelease          # unsigned release APK
+./gradlew assembleDebug            # debug APKs (per-ABI)
+./gradlew assembleRelease          # unsigned release APKs (per-ABI)
 ```
 
 First build takes a while (Gradle + native toolchain downloads). Output lands here:
 
 ```
-app/build/outputs/apk/debug/app-debug.apk
-app/build/outputs/apk/release/app-release-unsigned.apk
-```
-
-Then install it:
-
-```bash
-adb install app/build/outputs/apk/debug/app-debug.apk
+app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk
+app/build/outputs/apk/release/app-arm64-v8a-release.apk
+app/build/outputs/apk/release/app-armeabi-v7a-release.apk
 ```
 
 ### Using Docker (reproducible — same as CI)

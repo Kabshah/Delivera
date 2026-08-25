@@ -57,23 +57,27 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: Build debug APK
+      - name: Build debug APKs (per-ABI splits)
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Build release APK (unsigned)
+      - name: Build release APKs (per-ABI splits, unsigned)
         run: ./gradlew assembleRelease --no-daemon
 
-      - name: Upload debug APK
+      - name: Upload debug APKs
         uses: actions/upload-artifact@v4
         with:
           name: delivra-debug
-          path: delivra/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            delivra/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+            delivra/app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk
 
-      - name: Upload release APK
+      - name: Upload release APKs
         uses: actions/upload-artifact@v4
         with:
           name: delivra-release-unsigned
-          path: delivra/app/build/outputs/apk/release/app-release-unsigned.apk
+          path: |
+            delivra/app/build/outputs/apk/release/app-arm64-v8a-release.apk
+            delivra/app/build/outputs/apk/release/app-armeabi-v7a-release.apk
 
       # On tag push: attach APKs to a GitHub Release
       - name: Create GitHub Release
@@ -81,16 +85,21 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            delivra/app/build/outputs/apk/release/app-release-unsigned.apk
-            delivra/app/build/outputs/apk/debug/app-debug.apk
+            delivra/app/build/outputs/apk/release/app-arm64-v8a-release.apk
+            delivra/app/build/outputs/apk/release/app-armeabi-v7a-release.apk
           body: |
             ## Delivra ${{ github.ref_name }}
 
-            **This is an unsigned APK — install via ADB or allow "Install from unknown sources" on your Android device.**
+            **Two APK variants — pick the one matching your CPU (unsigned, so enable "Install from unknown sources" or use adb):**
+
+            | File | For devices |
+            |---|---|
+            | `app-arm64-v8a-release.apk` | **Almost every phone from ~2017 onwards** (Snapdragon, Exynos, Dimensity, Unisoc T6xx+…) — start here |
+            | `app-armeabi-v7a-release.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
 
             ### Installation
             ```bash
-            adb install app-release-unsigned.apk
+            adb install app-arm64-v8a-release.apk
             ```
             Or transfer to your phone and open with a file manager.
 

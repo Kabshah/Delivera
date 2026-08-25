@@ -66,8 +66,11 @@ fun SettingsScreen(
             (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).canScheduleExactAlarms()
         } else true
     }
-    // No battery exemption check needed — app is battery-efficient by design (§2.5):
-    // connect-on-demand, event-driven triggers, no polling, no always-on socket
+    // Live battery-optimization status — re-checked on every entry into Settings.
+    val hasBatteryExemption = remember {
+        (context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager)
+            .isIgnoringBatteryOptimizations(context.packageName)
+    }
 
     Column(modifier = modifier.fillMaxSize().background(SurfaceBase)) {
         // ── Header ──────────────────────────────────────────────────────────
@@ -166,25 +169,44 @@ fun SettingsScreen(
                 }
             }
 
-            // ── Battery-efficient design info (§2.5) ─────────────────────────
+            // ── Battery optimization (delivery reliability) ─────────────────
             item {
-                DiagnosticCard(title = "Battery-Efficient Design") {
+                DiagnosticCard(title = "Battery Optimization") {
                     DiagnosticRow(
-                        icon = Icons.Outlined.BatteryFull,
-                        label = "Architecture",
-                        value = "Connect-on-demand ✓",
-                        valueColor = StatusSentFg
+                        icon = Icons.Outlined.BatteryAlert,
+                        label = "Exempted from Doze",
+                        value = if (hasBatteryExemption) "Yes ✓" else "No — sends may fail ⚠",
+                        valueColor = if (hasBatteryExemption) StatusSentFg else StatusFailedFg
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Delivra only connects to WhatsApp for a few minutes " +
-                                "around each scheduled send, then disconnects. " +
-                                "No always-on socket, no polling loops — your battery " +
-                                "stays healthy while messages still send on time.",
+                        "Without this exemption Android blocks Delivra's network " +
+                                "access while the screen is off, so scheduled messages " +
+                                "can't reach WhatsApp. Exempting is the single most " +
+                                "important reliability switch.",
                         fontSize = 12.sp,
                         color = TextSecondary,
                         lineHeight = 18.sp
                     )
+                    if (!hasBatteryExemption) {
+                        Spacer(Modifier.height(6.dp))
+                        FixButton("Allow reliable delivery") {
+                            try {
+                                context.startActivity(
+                                    Intent(
+                                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                        Uri.parse("package:${context.packageName}")
+                                    )
+                                )
+                            } catch (_: Exception) {
+                                try {
+                                    context.startActivity(
+                                        Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                    )
+                                } catch (_: Exception) { }
+                            }
+                        }
+                    }
                 }
             }
 

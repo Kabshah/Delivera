@@ -76,6 +76,13 @@ fun DelivraNavGraph(
         composable(NavRoutes.HOME) {
             val vm: HomeViewModel = hiltViewModel()
             val state by vm.uiState.collectAsStateWithLifecycle()
+
+            // Re-check permission flags every time Home resumes, so the
+            // battery banner clears immediately after the user grants it.
+            androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                vm.onScreenResumed()
+            }
+
             HomeScreen(
                 messages = state.messages,
                 pendingCount = state.pendingCount,
@@ -91,6 +98,8 @@ fun DelivraNavGraph(
                 onMessageClick = { /* TODO: detail screen */ },
                 onLinkWhatsApp = { navController.navigate(NavRoutes.PAIRING) },
                 onSettings = { navController.navigate(NavRoutes.SETTINGS) },
+                hasBatteryOptExemption = state.hasBatteryOptExemption,
+                onToggleReliableDelivery = vm::onToggleReliableDelivery,
                 modifier = Modifier.fillMaxSize()
             )
         }
