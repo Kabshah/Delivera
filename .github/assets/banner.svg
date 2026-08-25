@@ -35,17 +35,17 @@
     <animate attributeName="width" values="60;330;330;60" dur="6s" repeatCount="indefinite"/>
   </rect>
 
-  <text class="t" x="60" y="172" font-size="21" fill="#f4ddd5">
+  <text class="t" x="60" y="172" font-size="21" fill="#f4ddd5" opacity="0">
     Schedule it. Forget it. Delivered.
-    <animate attributeName="opacity" values="1;1;0;0;1" dur="7.5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.08;0.28;0.36;1" dur="12s" repeatCount="indefinite"/>
   </text>
   <text class="t" x="60" y="172" font-size="21" fill="#f4ddd5" opacity="0">
     Your WhatsApp, on autopilot.
-    <animate attributeName="opacity" values="0;0;1;1;0;0" dur="7.5s" begin="2.5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.33;0.41;0.61;0.69;1" dur="12s" repeatCount="indefinite"/>
   </text>
   <text class="t" x="60" y="172" font-size="21" fill="#f4ddd5" opacity="0">
     Works while your phone sleeps.
-    <animate attributeName="opacity" values="0;0;1;1" dur="7.5s" begin="5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.66;0.74;0.93;1" dur="12s" repeatCount="indefinite"/>
   </text>
 
   <!-- phone + rising message bubbles -->
