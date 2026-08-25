@@ -2,7 +2,7 @@
   <img src=".github/assets/banner.svg" alt="Delivra - schedule WhatsApp messages that send automatically" width="100%"/>
 </div>
 
-# Delivra
+# Delivra - whatsapp android scheduler app
 
 **Schedule WhatsApp messages that send automatically - even when your phone is locked.**
 
