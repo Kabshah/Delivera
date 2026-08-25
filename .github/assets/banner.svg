@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="240" viewBox="0 0 920 240">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#241a1d"/>
+      <stop offset="55%" stop-color="#4a3038"/>
+      <stop offset="100%" stop-color="#7c4f57"/>
+      <animateTransform attributeName="gradientTransform" type="translate" values="0 0; 60 30; 0 0" dur="8s" repeatCount="indefinite"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#be8787"/>
+      <stop offset="50%" stop-color="#eec3b6"/>
+      <stop offset="100%" stop-color="#be8787"/>
+      <animateTransform attributeName="gradientTransform" type="translate" values="-1 0; 1 0; -1 0" dur="5s" repeatCount="indefinite"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f2c9bd" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#f2c9bd" stop-opacity="0"/>
+    </radialGradient>
+    <style>
+      .t { font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif; }
+    </style>
+  </defs>
+
+  <rect x="1" y="1" width="918" height="238" rx="22" fill="url(#bg)" stroke="#be8787" stroke-opacity="0.5" stroke-width="1.5"/>
+
+  <circle cx="750" cy="120" r="190" fill="url(#glow)">
+    <animate attributeName="cx" values="750;830;750" dur="9s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="130" cy="210" r="150" fill="url(#glow)">
+    <animate attributeName="cy" values="210;160;210" dur="11s" repeatCount="indefinite"/>
+  </circle>
+
+  <text class="t" x="58" y="108" font-size="70" font-weight="800" fill="#ffffff">Delivra</text>
+  <rect x="62" y="124" width="300" height="5" rx="2.5" fill="url(#accent)">
+    <animate attributeName="width" values="60;330;330;60" dur="6s" repeatCount="indefinite"/>
+  </rect>
+
+  <text class="t" x="60" y="172" font-size="21" fill="#f4ddd5">
+    Schedule it. Forget it. Delivered.
+    <animate attributeName="opacity" values="1;1;0;0;1" dur="7.5s" repeatCount="indefinite"/>
+  </text>
+  <text class="t" x="60" y="172" font-size="21" fill="#f4ddd5" opacity="0">
+    Your WhatsApp, on autopilot.
+    <animate attributeName="opacity" values="0;0;1;1;0;0" dur="7.5s" begin="2.5s" repeatCount="indefinite"/>
+  </text>
+  <text class="t" x="60" y="172" font-size="21" fill="#f4ddd5" opacity="0">
+    Works while your phone sleeps.
+    <animate attributeName="opacity" values="0;0;1;1" dur="7.5s" begin="5s" repeatCount="indefinite"/>
+  </text>
+
+  <!-- phone + rising message bubbles -->
+  <g>
+    <rect x="700" y="38" width="150" height="164" rx="18" fill="#1b1315" stroke="#eec3b6" stroke-opacity="0.55" stroke-width="2"/>
+    <rect x="752" y="46" width="46" height="6" rx="3" fill="#eec3b6" opacity="0.5"/>
+    <rect x="716" y="66" width="86" height="26" rx="12" fill="#be8787">
+      <animate attributeName="opacity" values="0;1;1;0" dur="5s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="748" y="104" width="86" height="26" rx="12" fill="#e9d3cd">
+      <animate attributeName="opacity" values="0;1;1;0" dur="5s" begin="1.2s" repeatCount="indefinite"/>
+    </rect>
+    <g transform="translate(742,150)">
+      <rect x="0" y="0" width="64" height="26" rx="12" fill="#57b26a"/>
+      <path d="M20 13 l7 7 l14 -14" stroke="#ffffff" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <animate attributeName="stroke-dasharray" values="0 40;40 0" dur="5s" begin="2.2s" repeatCount="indefinite"/>
+      </path>
+      <animateTransform attributeName="transform" type="translate" values="742 156; 742 148; 742 156" dur="3s" repeatCount="indefinite"/>
+    </g>
+  </g>
+
+  <text class="t" x="58" y="216" font-size="15" fill="#d9b8ae">v1.1 &#183; Android 8.0+ &#183; no cloud &#183; no accounts</text>
+</svg>
