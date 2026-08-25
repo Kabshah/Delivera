@@ -7,6 +7,15 @@ Send text, voice notes, and PDF/Word attachments to any WhatsApp contact at a sp
 > Distributed via [GitHub Releases](../../releases), not the Play Store.  
 > WhatsApp automation violates Play Store policy, so you install the APK directly from this repo.
 
+### 📲 Download (latest version)
+
+| | |
+|---|---|
+| **Most phones (2017 onward)** — Samsung, Xiaomi, OnePlus, Pixel, Redmi, Realme… | **[⬇ Download arm64-v8a APK](https://github.com/Kabshah/Delivera/releases/latest/download/app-arm64-v8a-release.apk)** |
+| Older / entry-level 32-bit-only phones | [⬇ Download armeabi-v7a APK](https://github.com/Kabshah/Delivera/releases/latest/download/app-armeabi-v7a-release.apk) |
+
+These buttons always fetch the **newest release** automatically. Looking for the original v1.0 build? It's preserved in [older releases](https://github.com/Kabshah/Delivera/releases) and on the [`v1` branch](../../tree/v1).
+
 ---
 
 ## ⚠️ Honesty Notes (please read before installing)
@@ -27,12 +36,13 @@ Send text, voice notes, and PDF/Word attachments to any WhatsApp contact at a sp
 - WhatsApp installed on the same phone
 
 ### Steps
-1. Download the APK for your CPU from [Releases](../../releases):
-   - **`app-arm64-v8a-release.apk`** — almost every phone from ~2017 onwards (Samsung, Xiaomi, OnePlus, Pixel, Redmi, Realme…). **Start with this one.**
+1. Download the APK for your CPU using the buttons above, or from the [Releases page](../../releases):
+   - **`app-arm64-v8a-release.apk`** — almost every phone from ~2017 onwards. **Start with this one.**
    - **`app-armeabi-v7a-release.apk`** — only for older / entry-level 32-bit-only phones. Try this if the arm64 APK says "app not installed".
 2. Enable **Install from unknown sources** for your file manager or browser app
 3. Open the APK and install
 4. On first launch, follow the WhatsApp linking flow (pairing code)
+5. Tap the **Reliable delivery** toggle on the Home screen and allow it — this is what makes sends work while the screen is off
 
 ### ADB install (alternative)
 ```bash
