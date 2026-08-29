@@ -20,12 +20,13 @@ import * as rawBaileys from '@whiskeysockets/baileys';
 // makeWASocket is the .default export
 const makeWASocket = rawBaileys.default;
 
-// Atomic auth state (§6.1) — temp+rename writes, corrupt-session detection.
-const useAtomicFileAuthState = (await import('./atomic-auth.js')).useAtomicFileAuthState;
-
 // All other helpers are named exports directly on the namespace
 const DisconnectReason = rawBaileys.DisconnectReason;
 const fetchLatestBaileysVersion = rawBaileys.fetchLatestBaileysVersion;
+
+// §6.1 — atomic auth state: temp-file + rename on every write so a
+// process kill mid-write can never leave a torn session behind.
+import { useAtomicFileAuthState, AuthStateCorruptError } from './atomic-auth.js';
 
 import { Boom } from '@hapi/boom';
 import fs from 'fs';
@@ -41,86 +42,13 @@ let sessionDir = './session';
 let currentVersion = [2, 3000, 1015901307];
 let reconnectAttempt = 0;
 const MAX_BACKOFF_MS = 30000;
-// Cap total reconnect attempts per connect() session. Without this, an offline
-// device (e.g. DNS failure) loops forever every ≤30s — battery drain + logcat
-// flood. The Kotlin backstop worker re-invokes connect() later, which resets
-// the counter.
-const MAX_RECONNECT_ATTEMPTS = 8;
-let reconnectTimer = null;
-// Set while we're deliberately tearing a socket down (user/dispatcher asked).
-// Its 'close' event must NOT trigger auto-reconnect — otherwise the engine
-// leaves a zombie session connected, and the NEXT dispatch creates a second
-// live socket on the same WhatsApp account → server kills both with
-// stream:error conflict type="replaced" (reason 440) → sends fail.
-let intentionalDisconnect = false;
 
 let globalConnectError = 'None';
-
-// ── Contact store (§4.2) ─────────────────────────────────────────────────
-// Baileys does NOT populate sock.store by itself — getContacts() used to read
-// an always-empty object. Collect contacts from the events that carry them and
-// persist a small cache so the list survives process restarts (bounded file,
-// one entry per WhatsApp contact — consistent with §2.5's no-unbounded-growth
-// rule since it never grows beyond the user's actual contact count).
-const contactsCache = new Map(); // jid -> name
-
-function upsertContact(c) {
-    if (!c?.id || typeof c.id !== 'string') return;
-    if (c.id.endsWith('@g.us') || c.id.endsWith('@broadcast')) return; // groups/lists aren't contacts
-    const name = c.notify || c.name || c.verifiedName;
-    if (name && name !== contactsCache.get(c.id)) {
-        contactsCache.set(c.id, name);
-        scheduleContactsPersist();
-    }
-}
-
-let persistTimer = null;
-function scheduleContactsPersist() {
-    if (persistTimer) return; // coalesce bursts (history sync can deliver hundreds)
-    persistTimer = setTimeout(() => {
-        persistTimer = null;
-        try {
-            const path = new URL('./contacts_cache.json', import.meta.url);
-            fs.writeFileSync(path, JSON.stringify([...contactsCache]));
-        } catch (e) {
-            console.error('[Delivra Node] contacts cache write failed:', e.message);
-        }
-    }, 3000);
-}
-
-try {
-    const cached = fs.readFileSync(new URL('./contacts_cache.json', import.meta.url), 'utf8');
-    for (const [jid, name] of JSON.parse(cached)) contactsCache.set(jid, name);
-} catch (_e) { /* first run / no cache yet */ }
-
-/**
- * Tears down the current socket (if any) WITHOUT triggering auto-reconnect:
- * detaches its event listeners first so late events can't respawn sockets,
- * then ends it. Used by disconnectWhatsApp() AND connectToWhatsApp() — any
- * new connection must never coexist with an old one (single-session rule).
- */
-function endCurrentSocket() {
-  const s = sock;
-  sock = null;
-  intentionalDisconnect = true;
-  clearTimeout(reconnectTimer);
-  reconnectTimer = null;
-  if (s) {
-    try { s.ev.removeAllListeners('connection.update'); } catch (_e) { /* best effort */ }
-    try { s.ev.removeAllListeners('creds.update'); } catch (_e) { /* best effort */ }
-    try { s.end(undefined); } catch (_e) { /* best effort */ }
-  }
-}
 
 async function connectToWhatsApp(sesDir, onEvent) {
   sessionDir = sesDir;
   connectionCallback = onEvent;
-  reconnectAttempt = 0;
-  // Kill any existing/zombie socket FIRST. Creating a second live socket on
-  // the same auth state makes WhatsApp reject both with conflict/replaced.
-  endCurrentSocket();
-  intentionalDisconnect = false;
-  
+
   try {
     fs.mkdirSync(sessionDir, { recursive: true });
 
@@ -138,21 +66,29 @@ async function connectToWhatsApp(sesDir, onEvent) {
     } catch (e) {
       console.log('[Delivra Node] Using default Baileys version fallback:', e.message);
     }
-  
-    const { state, saveCreds: sc } = await useAtomicFileAuthState(sessionDir);
-    authState = state;
-    saveCreds = sc;
+
+    // §6.1 — use atomic auth state (temp+rename writes, corrupt-creds detection)
+    let authResult;
+    try {
+      authResult = await useAtomicFileAuthState(sessionDir);
+    } catch (e) {
+      if (e instanceof AuthStateCorruptError) {
+        // Session file is present but unparseable — a torn write from a
+        // previous process kill. Surface as logged_out so Kotlin prompts
+        // the user to re-link instead of entering a silent crash loop.
+        console.error('[Delivra Node] Auth state corrupt — treating as logged out:', e.message);
+        connectionCallback?.({ state: 'logged_out' });
+        return;
+      }
+      throw e;
+    }
+    authState = authResult.state;
+    saveCreds = authResult.saveCreds;
 
     createSocket();
   } catch (err) {
     globalConnectError = err.message || err.toString();
     console.error('[Delivra Node] connectToWhatsApp FATAL crash:', err);
-    // §6.1 startup health check: a corrupt auth state must surface as
-    // "re-link required", never as a silent fresh-session reset.
-    if (String(err.message).includes('AUTH_STATE_CORRUPT')) {
-      connectionCallback?.({ state: 'logged_out' });
-      return;
-    }
     throw err;
   }
 }
@@ -161,20 +97,14 @@ let resolvePairingReady = null;
 let pairingReadyPromise = null;
 
 function createSocket() {
-  // A socket already exists (e.g. a reconnect timer raced a newer connect()
-  // call) — never run two live sockets on one auth state.
-  if (sock) {
-    console.log('[Delivra Node] createSocket skipped — socket already active');
-    return;
-  }
   console.log('[Delivra Node] Creating WASocket with version:', currentVersion);
-  
+
   // Reset pairing readiness state for the new socket
   pairingReadyPromise = new Promise((resolve) => {
     resolvePairingReady = resolve;
   });
 
-  const thisSock = makeWASocket({
+  sock = makeWASocket({
     version: currentVersion,
     auth: authState,
     printQRInTerminal: false,
@@ -192,20 +122,8 @@ function createSocket() {
     }
   });
 
-  sock = thisSock;
-
-  thisSock.ev.on('creds.update', saveCreds);
-
-  // Contact collection (§4.2) — these are the only events that ever carry names
-  thisSock.ev.on('messaging-history.set', ({ chats = [] } = {}) => chats.forEach(upsertContact));
-  thisSock.ev.on('contacts.upsert', (chats = []) => chats.forEach(upsertContact));
-  thisSock.ev.on('contacts.update', (chats = []) => chats.forEach(upsertContact));
-
-  thisSock.ev.on('connection.update', async (update) => {
-    // Events from a superseded/dead socket must be ignored entirely — acting
-    // on them is what used to spawn parallel sessions (conflict/replaced).
-    if (sock !== thisSock) return;
-
+  sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
     console.log('[Delivra Node] Connection update:', JSON.stringify(update));
 
@@ -220,23 +138,15 @@ function createSocket() {
       reconnectAttempt = 0;
       connectionCallback?.({ state: 'connected' });
     } else if (connection === 'close') {
-      sock = null; // this socket is dead — free the slot before deciding next step
       const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
       console.log('[Delivra Node] Socket closed, reason code:', reason);
       if (reason === DisconnectReason.loggedOut) {
         connectionCallback?.({ state: 'logged_out' });
-      } else if (intentionalDisconnect) {
-        console.log('[Delivra Node] Intentional disconnect — staying offline');
-        connectionCallback?.({ state: 'disconnected' });
-      } else if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
-        console.log('[Delivra Node] Reconnect limit reached (' + MAX_RECONNECT_ATTEMPTS + ') — giving up until next dispatch');
-        connectionCallback?.({ state: 'error', message: 'reconnect_gave_up' });
       } else {
         const backoff = Math.min(2 ** reconnectAttempt * 2000, MAX_BACKOFF_MS);
         reconnectAttempt++;
         connectionCallback?.({ state: 'reconnecting', backoffMs: backoff });
-        clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(createSocket, backoff);
+        setTimeout(createSocket, backoff);
       }
     } else if (connection === 'connecting') {
       connectionCallback?.({ state: 'connecting' });
@@ -273,7 +183,7 @@ function startPairing(phoneNumber, onResult) {
       }
 
       console.log('[Delivra Node] Waiting for Baileys WebSocket to be fully ready for pairing...');
-      
+
       // Strict Promise wrapper that hooks DIRECTLY into the current socket's event emitter,
       // avoiding any reliance on global/re-assigned promises that can strand execution.
       await new Promise((resolve, reject) => {
@@ -307,21 +217,18 @@ function startPairing(phoneNumber, onResult) {
 }
 
 function getContacts() {
-    // Collected from messaging-history/contacts events + persisted cache (§4.2).
-    // sock.store fallback kept for safety but is normally empty by itself.
-    const live = [...contactsCache.entries()].map(([jid, name]) => ({ jid, name }));
-    if (live.length > 0) return live;
-    const store = sock?.store || {};
-    return Object.values(store.contacts || {}).map(c => ({
-        jid: c.id,
-        name: c.notify || c.name || c.id,
-    }));
+  if (!sock) return [];
+  const store = sock.store || {};
+  const contacts = Object.values(store.contacts || {}).map(c => ({
+    jid: c.id,
+    name: c.notify || c.name || c.id,
+  }));
+  return contacts;
 }
 
 function disconnectWhatsApp() {
-  // Full teardown — listeners removed first so the 'close' event can't spawn
-  // a reconnect (that zombie socket is what caused conflict/replaced failures).
-  endCurrentSocket();
+  sock?.end(undefined);
+  sock = null;
 }
 
 function getConnectionState() {

@@ -35,6 +35,17 @@ No servers. No accounts. No cloud.
 
 ---
 
+## 🔧 What's new in v1.2.0 — Critical stability fix
+
+> **If you installed v1.1.x, please update.** v1.1.x had a bug where opening the app on Day 2 (after connecting and scheduling on Day 1) caused a crash within 1–2 seconds of launch, making the app completely unusable until reinstalled.
+
+**Changes in v1.2.0:**
+- **Fixed Day-2 crash** — the Node.js engine lifecycle was not properly reset between app sessions, causing a 30-second timeout + crash on every cold open after Day 1
+- **Fixed session file safety** — WhatsApp session files are now written atomically (temp-file + rename), preventing session corruption if the app is killed mid-write
+- **Removed unnecessary service auto-start** — the app no longer wakes the background engine on every launch (better battery, eliminates the crash trigger)
+
+---
+
 ## What Delivra does
 
 | | |
@@ -109,4 +120,4 @@ Get contact suggestions directly from your phone book for faster message schedul
 
 ---
 
->  *Delivra is an independent productivity and scheduling utility for WhatsApp messaging. It is not affiliated with, endorsed by, or officially connected to WhatsApp or Meta.*
+> &nbsp;*Delivra is an independent productivity and scheduling utility for WhatsApp messaging. It is not affiliated with, endorsed by, or officially connected to WhatsApp or Meta.*

@@ -44,16 +44,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Warm up Node runtime in background so it's ready before user even opens Pairing/Send screen
-        try {
-            val intent = android.content.Intent(this, com.kabshah.delivra.service.SchedulerService::class.java).apply {
-                putExtra("keep_alive", true)
-            }
-            startForegroundService(intent)
-        } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Failed to pre-warm SchedulerService: ${e.message}")
-        }
-
         setContent {
             DelivraTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = SurfaceBase) {
