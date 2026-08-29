@@ -107,6 +107,11 @@ jobs:
             | `Delivra-arm64-v8a.apk` | **Almost every phone from ~2017 onwards** (Snapdragon, Exynos, Dimensity, Unisoc T6xx+…) — start here |
             | `Delivra-armeabi-v7a.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
 
+            ### What's new in ${{ github.ref_name }}
+            - Fixed Day-2 crash: the Node.js engine lifecycle was not reset between sessions, causing a 30-second timeout + crash on every cold open after Day 1
+            - Fixed session file safety: WhatsApp session written atomically (temp+rename) so a process kill mid-write can never corrupt the session
+            - Removed unnecessary service auto-start from app launch (better battery, and the main crash trigger)
+
             ### Installation
             ```bash
             adb install Delivra-arm64-v8a.apk
@@ -120,6 +125,7 @@ jobs:
             - `POST_NOTIFICATIONS` — failure/review alerts
             - `INTERNET` — WhatsApp Web multi-device protocol (Baileys)
 
-            See [README](delivra/README.md) for full setup and known reliability caveats.
+            See [README](README.md) for full setup and known reliability caveats.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

@@ -53,9 +53,13 @@ class SchedulerService : Service() {
 
     private suspend fun setupNodeRuntime() {
         if (nodeBridge.isChannelInitialized) {
-            Log.d(TAG, "Node channel already initialized.")
+            Log.d(TAG, "Node channel already initialized — skipping setup.")
             return
         }
+        // If the Node TCP server is already running (from a previous service
+        // invocation in the same process lifetime) but the channel was reset
+        // by onDestroy(), skip the node launch but still wire the TCP channel.
+        val nodeAlreadyRunning = isNodeStarted
 
         val destDir = File(cacheDir, "nodejs-project")
 
@@ -96,22 +100,28 @@ class SchedulerService : Service() {
         copySingleAsset("nodejs-project/polyfill.js", File(destDir, "polyfill.js"))
         copySingleAsset("nodejs-project/whatsapp.js", File(destDir, "whatsapp.js"))
         copySingleAsset("nodejs-project/sender.js", File(destDir, "sender.js"))
+        copySingleAsset("nodejs-project/atomic-auth.js", File(destDir, "atomic-auth.js"))
         copySingleAsset("nodejs-project/package.json", File(destDir, "package.json"))
 
         val entryPoint = File(destDir, "index.js").absolutePath
 
-        synchronized(SchedulerService::class.java) {
-            if (!isNodeStarted) {
-                isNodeStarted = true
-                Thread {
-                    try {
-                        startNodeWithArguments(arrayOf("node", entryPoint), cacheDir.absolutePath)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error starting node: ${e.message}")
-                    }
-                }.start()
-                Log.d(TAG, "Node runtime started, entry=$entryPoint")
+        if (!nodeAlreadyRunning) {
+            synchronized(SchedulerService::class.java) {
+                if (!isNodeStarted) {
+                    isNodeStarted = true
+                    Thread {
+                        try {
+                            startNodeWithArguments(arrayOf("node", entryPoint), cacheDir.absolutePath)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error starting node: ${e.message}")
+                            isNodeStarted = false  // allow retry on next service start
+                        }
+                    }.start()
+                    Log.d(TAG, "Node runtime started, entry=$entryPoint")
+                }
             }
+        } else {
+            Log.d(TAG, "Node process already running — skipping launch, will reconnect TCP channel")
         }
 
         // Step 3: Wire NodeBridge channel over TCP.
@@ -289,8 +299,14 @@ class SchedulerService : Service() {
         // the TCP socket fresh. Without this, isChannelInitialized stays true but the
         // read coroutine (tied to serviceScope) is already dead → connection events never arrive.
         nodeBridge.resetChannel()
+        // Reset isNodeStarted so the NEXT service invocation can relaunch the Node TCP
+        // server. This is the critical fix for the Day-2 crash: without this reset,
+        // isNodeStarted stays true forever, setupNodeRuntime() sees the running flag and
+        // skips the launch, but the TCP server is dead (its thread exited with the
+        // previous socket), so channel init times out and the app hangs/crashes.
+        isNodeStarted = false
         serviceScope.cancel()
-        Log.d(TAG, "SchedulerService destroyed")
+        Log.d(TAG, "SchedulerService destroyed — isNodeStarted reset for next invocation")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -347,8 +363,13 @@ class SchedulerService : Service() {
          *               removes those files from existing installs.
          *          v9 = terser-minified Baileys/WAProto (-6 MB on device),
          *               engine runtime home moved to cacheDir.
+         *          v10 = atomic-auth.js wired in (§6.1 fix): temp+rename session
+         *                writes + corrupt-creds detection to prevent silent crash
+         *                loop on torn session files. Day-2 crash fix: isNodeStarted
+         *                reset in onDestroy(), startForegroundService removed from
+         *                MainActivity.onCreate (§2.3 connect-on-demand).
          */
-        private const val NODEJS_ASSETS_VERSION = "9"
+        private const val NODEJS_ASSETS_VERSION = "10"
 
         @Volatile
         private var isNodeStarted = false
