@@ -74,10 +74,18 @@ class NodeBridge @Inject constructor(
      * a fresh TCP socket + read coroutine. Must be called from onDestroy() so the
      * stale channel reference (whose read loop was cancelled with serviceScope) is
      * not mistakenly treated as live by the next service invocation.
+     *
+     * Bug 4 fix: also reset _connectionState to DISCONNECTED. Without this, the
+     * Day-1 CONNECTED state is still in the StateFlow on Day 2. When SchedulerService
+     * calls connect() (fire-and-forget) then waitForConnected(), the StateFlow's
+     * current replay value is CONNECTED — but the underlying Baileys socket is NOT
+     * open yet. The wait would "succeed" immediately and send would be attempted on
+     * a dead socket. Resetting to DISCONNECTED forces a real CONNECTED emission.
      */
     fun resetChannel() {
         channel = null
-        Log.d(TAG, "Channel reset — next startup will reconnect TCP")
+        _connectionState.value = ConnectionState.DISCONNECTED
+        Log.d(TAG, "Channel reset + connection state reset to DISCONNECTED for fresh Day-2 start")
     }
 
     fun initChannel(ch: NodeJsMobile.Channel) {

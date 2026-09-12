@@ -35,14 +35,18 @@ No servers. No accounts. No cloud.
 
 ---
 
-## 🔧 What's new in v1.2.0 — Critical stability fix
+## 🔧 What's new in v1.3.0 — Comprehensive Multi-Day Stability & Day-2 Crash Fix
 
-> **If you installed v1.1.x, please update.** v1.1.x had a bug where opening the app on Day 2 (after connecting and scheduling on Day 1) caused a crash within 1–2 seconds of launch, making the app completely unusable until reinstalled.
+> **⚠️ Important:** If you are using any previous build (v1.0, v1.1.x, v1.2.0), **please update to v1.3.0 immediately**. Earlier versions experienced crashes or socket hangs when reopening the app on subsequent days due to Node.js C++ background lifecycle and port collisions. **v1.3.0 is the recommended, fully stabilized release for all users.**
 
-**Changes in v1.2.0:**
-- **Fixed Day-2 crash** — the Node.js engine lifecycle was not properly reset between app sessions, causing a 30-second timeout + crash on every cold open after Day 1
-- **Fixed session file safety** — WhatsApp session files are now written atomically (temp-file + rename), preventing session corruption if the app is killed mid-write
-- **Removed unnecessary service auto-start** — the app no longer wakes the background engine on every launch (better battery, eliminates the crash trigger)
+**Key Improvements in v1.3.0:**
+- **Rock-Solid Day-2 Reconnects**: Port 3000 is checked dynamically before launching Node.js. If the native engine is already active from an earlier session, Kotlin seamlessly reconnects without port collision (`EADDRINUSE`) crashes.
+- **Stale Socket Destruction**: Old TCP client sockets are cleanly torn down before registering new ones, preventing buffer corruption and double event emissions.
+- **Ghost Reconnection Prevention**: Baileys socket includes `intentionalClose` and `isConnecting` locks to stop infinite reconnect cycles and concurrent duplicate sockets.
+- **Connection Race Resolved**: Fixed `waitForConnected()` state flow race where already-connected events caused cold opens to freeze.
+- **Pairing Screen Cleanup Isolation**: Navigating away from the pairing UI no longer terminates running background scheduler services.
+- **Memory Optimization**: Session auth file locks capped with LRU eviction to prevent memory accumulation.
+- **Assets Version 11**: Forces clean re-extraction of runtime assets on upgrade.
 
 ---
 

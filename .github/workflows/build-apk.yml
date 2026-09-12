@@ -94,6 +94,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          name: Delivra ${{ github.ref_name }}
+          make_latest: true
           files: |
             dist/Delivra-arm64-v8a.apk
             dist/Delivra-armeabi-v7a.apk
@@ -108,9 +110,13 @@ jobs:
             | `Delivra-armeabi-v7a.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
 
             ### What's new in ${{ github.ref_name }}
-            - Fixed Day-2 crash: the Node.js engine lifecycle was not reset between sessions, causing a 30-second timeout + crash on every cold open after Day 1
-            - Fixed session file safety: WhatsApp session written atomically (temp+rename) so a process kill mid-write can never corrupt the session
-            - Removed unnecessary service auto-start from app launch (better battery, and the main crash trigger)
+            - **Complete Day-2 & Multi-Day Crash Fix**: Probe Node TCP port before starting runtime. Reconnects to already-running Node process without `EADDRINUSE` port collision.
+            - **Socket Reconnection Safety**: Previous Kotlin-to-Node TCP sockets are cleanly destroyed before attaching a new one, eliminating event collision and buffer corruption.
+            - **Baileys Connection Guards**: Added `intentionalClose` to stop rogue reconnect loops after disconnect and `isConnecting` to prevent concurrent Baileys socket creation.
+            - **StateFlow Race Condition Fix**: `waitForConnected()` pre-checks current connection state before suspending, preventing indefinite hangs on app open.
+            - **Service Lifecycle Isolation**: `PairingViewModel` no longer tears down `SchedulerService` when navigating away if it was triggered by alarms for scheduled delivery.
+            - **Bounded File Locks**: Prevent memory leaks in atomic session auth by bounding mutexes with LRU eviction.
+            - **Engine Assets Version 11**: Forces automatic re-extraction of clean runtime assets on existing device upgrades.
 
             ### Installation
             ```bash

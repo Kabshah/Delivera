@@ -34,9 +34,34 @@ let clientSocket = null;
 
 // The TCP server that Kotlin connects to
 const server = net.createServer((socket) => {
-  console.log('[Delivra Node] Kotlin connected');
+  // Bug 2 fix: if a previous Kotlin connection is still open (Day-2 re-connect),
+  // destroy it cleanly before wiring up the new socket. Without this, the old
+  // socket's 'data' listener stays attached and corrupts the new connection's
+  // line-buffer parsing.
+  if (clientSocket && !clientSocket.destroyed) {
+    console.log('[Delivra Node] Destroying previous Kotlin socket before accepting new connection');
+    clientSocket.destroy();
+  }
   clientSocket = socket;
+  console.log('[Delivra Node] Kotlin connected');
 
+  // Clean up on socket close/error so sendResponse() doesn't try to write
+  // to a dead socket on future calls.
+  socket.on('close', () => {
+    if (clientSocket === socket) {
+      clientSocket = null;
+      console.log('[Delivra Node] Kotlin socket closed');
+    }
+  });
+  socket.on('error', (err) => {
+    console.error('[Delivra Node] Socket error:', err.message);
+    if (clientSocket === socket) {
+      clientSocket = null;
+    }
+  });
+
+  // Reset per-connection line buffer — never carry over a partial line from
+  // a previous connection (would cause JSON parse errors on the new session).
   let buffer = '';
   socket.on('data', async (data) => {
     buffer += data.toString();

@@ -56,10 +56,21 @@ class SchedulerService : Service() {
             Log.d(TAG, "Node channel already initialized — skipping setup.")
             return
         }
-        // If the Node TCP server is already running (from a previous service
-        // invocation in the same process lifetime) but the channel was reset
-        // by onDestroy(), skip the node launch but still wire the TCP channel.
-        val nodeAlreadyRunning = isNodeStarted
+
+        // Probe whether the Node TCP server is ACTUALLY still running — don't rely
+        // on the Kotlin flag, because the native Node thread outlives the service.
+        // Bug 1 fix: `isNodeStarted` was reset in onDestroy(), but the Node process
+        // was never killed, so Day-2 re-launch hit EADDRINUSE on port 3000 and crashed.
+        val nodeAlreadyRunning = isNodeAlive()
+        if (nodeAlreadyRunning) {
+            Log.d(TAG, "TCP probe: Node is still alive on port 3000 — skipping re-launch")
+            isNodeStarted = true  // re-sync the flag to reality
+        } else if (isNodeStarted) {
+            // Flag said running but probe failed — Node died unexpectedly; reset flag
+            // so we re-launch below.
+            Log.w(TAG, "isNodeStarted=true but port 3000 not responding — Node crashed, will re-launch")
+            isNodeStarted = false
+        }
 
         val destDir = File(cacheDir, "nodejs-project")
 
@@ -121,7 +132,7 @@ class SchedulerService : Service() {
                 }
             }
         } else {
-            Log.d(TAG, "Node process already running — skipping launch, will reconnect TCP channel")
+            Log.d(TAG, "Node process already alive on port 3000 — reconnecting TCP channel only")
         }
 
         // Step 3: Wire NodeBridge channel over TCP.
@@ -280,6 +291,17 @@ class SchedulerService : Service() {
 
     /** Suspend until connection reaches CONNECTED, or throw on terminal state / timeout. */
     private suspend fun waitForConnected() {
+        // Bug 4 fix: StateFlow.first{} only catches the NEXT emission after subscription.
+        // If CONNECTED was already emitted between connect() and this call (possible on
+        // fast networks / Day-2 session restore), we'd hang for the full 60s timeout.
+        // Pre-check the current replay value to close this race window.
+        when (nodeBridge.connectionState.value) {
+            NodeBridge.ConnectionState.CONNECTED -> return  // already live — nothing to wait for
+            NodeBridge.ConnectionState.LOGGED_OUT,
+            NodeBridge.ConnectionState.ERROR ->
+                throw IllegalStateException("WhatsApp session invalid — re-link required")
+            else -> { /* fall through to flow-based wait below */ }
+        }
         withTimeout(60_000L) {  // 60s — gives Baileys enough time for session restore on slow networks
             nodeBridge.connectionState.first { state ->
                 when (state) {
@@ -299,14 +321,14 @@ class SchedulerService : Service() {
         // the TCP socket fresh. Without this, isChannelInitialized stays true but the
         // read coroutine (tied to serviceScope) is already dead → connection events never arrive.
         nodeBridge.resetChannel()
-        // Reset isNodeStarted so the NEXT service invocation can relaunch the Node TCP
-        // server. This is the critical fix for the Day-2 crash: without this reset,
-        // isNodeStarted stays true forever, setupNodeRuntime() sees the running flag and
-        // skips the launch, but the TCP server is dead (its thread exited with the
-        // previous socket), so channel init times out and the app hangs/crashes.
-        isNodeStarted = false
+        // NOTE: We do NOT reset isNodeStarted here. The native Node.js thread (started
+        // via startNodeWithArguments) outlives this service instance — it keeps running
+        // after onDestroy(). Resetting the flag here was the original Day-2 crash cause:
+        // on next service start, the code thought Node was dead and tried to start it
+        // again, hitting EADDRINUSE on port 3000. Liveness is now determined by a live
+        // TCP probe in setupNodeRuntime() instead of this flag.
         serviceScope.cancel()
-        Log.d(TAG, "SchedulerService destroyed — isNodeStarted reset for next invocation")
+        Log.d(TAG, "SchedulerService destroyed — bridge channel reset, Node still alive")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -365,14 +387,34 @@ class SchedulerService : Service() {
          *               engine runtime home moved to cacheDir.
          *          v10 = atomic-auth.js wired in (§6.1 fix): temp+rename session
          *                writes + corrupt-creds detection to prevent silent crash
-         *                loop on torn session files. Day-2 crash fix: isNodeStarted
-         *                reset in onDestroy(), startForegroundService removed from
-         *                MainActivity.onCreate (§2.3 connect-on-demand).
+         *                loop on torn session files.
+         *          v11 = Day-2 crash fix (root cause): TCP port probe replaces
+         *                isNodeStarted flag for Node liveness; intentionalClose
+         *                guard in whatsapp.js stops ghost reconnect loops;
+         *                index.js cleans up old clientSocket on re-connect;
+         *                NodeBridge.waitForConnected() pre-checks current state.
          */
-        private const val NODEJS_ASSETS_VERSION = "10"
+        private const val NODEJS_ASSETS_VERSION = "11"
 
         @Volatile
         private var isNodeStarted = false
+
+        /**
+         * Probes whether the Node.js TCP server is actually listening on port 3000.
+         * This is the reliable liveness check — the Kotlin `isNodeStarted` flag is
+         * NOT sufficient because the native Node thread outlives SchedulerService.
+         * Returns true if a TCP connection to 127.0.0.1:3000 succeeds within 300ms.
+         */
+        private fun isNodeAlive(): Boolean {
+            return try {
+                java.net.Socket().use { s ->
+                    s.connect(java.net.InetSocketAddress("127.0.0.1", 3000), 300)
+                    true
+                }
+            } catch (_: Exception) {
+                false
+            }
+        }
 
         init {
             try {

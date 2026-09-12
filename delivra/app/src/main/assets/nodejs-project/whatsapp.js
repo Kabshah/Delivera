@@ -45,7 +45,32 @@ const MAX_BACKOFF_MS = 30000;
 
 let globalConnectError = 'None';
 
+// Bug 3 fix: intentional-close guard prevents the exponential-backoff
+// setTimeout(createSocket, backoff) from firing after a deliberate
+// disconnectWhatsApp() call. Without this, Day-2 service restart + new
+// connect() races with a ghost reconnect from the Day-1 close event.
+let intentionalClose = false;
+
+// Bug 8 fix: prevent two concurrent connectToWhatsApp() calls (e.g. from
+// PairingViewModel + SchedulerService in the same window) from creating
+// two Baileys sockets simultaneously and corrupting the auth state.
+let isConnectingOrConnected = false;
+
 async function connectToWhatsApp(sesDir, onEvent) {
+  // Bug 8 guard: if already connecting/connected, don't create a second socket.
+  // The only legitimate case for a fresh connect is after an explicit disconnect.
+  if (isConnectingOrConnected) {
+    console.log('[Delivra Node] connectToWhatsApp called while already connecting/connected — ignored');
+    // Re-wire the callback so the new caller gets state events too.
+    connectionCallback = onEvent;
+    return;
+  }
+  isConnectingOrConnected = true;
+
+  // Bug 3 fix: clear the intentionalClose flag on every new connect call so
+  // reconnect backoffs triggered from this session work normally.
+  intentionalClose = false;
+
   sessionDir = sesDir;
   connectionCallback = onEvent;
 
@@ -88,6 +113,7 @@ async function connectToWhatsApp(sesDir, onEvent) {
     createSocket();
   } catch (err) {
     globalConnectError = err.message || err.toString();
+    isConnectingOrConnected = false;  // allow retry on next connect() call
     console.error('[Delivra Node] connectToWhatsApp FATAL crash:', err);
     throw err;
   }
@@ -141,7 +167,14 @@ function createSocket() {
       const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
       console.log('[Delivra Node] Socket closed, reason code:', reason);
       if (reason === DisconnectReason.loggedOut) {
+        isConnectingOrConnected = false;
         connectionCallback?.({ state: 'logged_out' });
+      } else if (intentionalClose) {
+        // Bug 3 fix: Kotlin called disconnectWhatsApp() — do NOT schedule a
+        // reconnect. Clear the flag so the next explicit connect() works fresh.
+        console.log('[Delivra Node] Socket closed intentionally — suppressing backoff reconnect');
+        intentionalClose = false;
+        isConnectingOrConnected = false;
       } else {
         const backoff = Math.min(2 ** reconnectAttempt * 2000, MAX_BACKOFF_MS);
         reconnectAttempt++;
@@ -227,6 +260,11 @@ function getContacts() {
 }
 
 function disconnectWhatsApp() {
+  // Bug 3 fix: set the flag BEFORE calling sock.end() so the 'connection.update'
+  // close event (fired synchronously/immediately) sees it and skips the backoff
+  // reconnect timer. If we set it after, the race means the timer gets queued anyway.
+  intentionalClose = true;
+  isConnectingOrConnected = false;
   sock?.end(undefined);
   sock = null;
 }
