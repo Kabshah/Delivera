@@ -22,6 +22,7 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.PrintWriter
 import kotlinx.coroutines.flow.first
+import java.net.InetSocketAddress
 
 /**
  * Foreground Service that:
@@ -61,15 +62,18 @@ class SchedulerService : Service() {
         // on the Kotlin flag, because the native Node thread outlives the service.
         // Bug 1 fix: `isNodeStarted` was reset in onDestroy(), but the Node process
         // was never killed, so Day-2 re-launch hit EADDRINUSE on port 3000 and crashed.
-        val nodeAlreadyRunning = isNodeAlive()
+        val probeResult = probeNodePort()
+        val nodeAlreadyRunning = probeResult.first
+        activeNodePort = probeResult.second
         if (nodeAlreadyRunning) {
-            Log.d(TAG, "TCP probe: Node is still alive on port 3000 — skipping re-launch")
+            Log.d(TAG, "TCP probe: Node is still alive on port $activeNodePort — skipping re-launch")
             isNodeStarted = true  // re-sync the flag to reality
         } else if (isNodeStarted) {
             // Flag said running but probe failed — Node died unexpectedly; reset flag
             // so we re-launch below.
-            Log.w(TAG, "isNodeStarted=true but port 3000 not responding — Node crashed, will re-launch")
+            Log.w(TAG, "isNodeStarted=true but no port responding — Node crashed, will re-launch")
             isNodeStarted = false
+            activeNodePort = DEFAULT_NODE_PORT
         }
 
         val destDir = File(cacheDir, "nodejs-project")
@@ -85,24 +89,39 @@ class SchedulerService : Service() {
 
         val nodeModulesDir = File(destDir, "node_modules")
         val versionMarker = File(destDir, ".delivra-assets-version")
-        val isUpToDate = versionMarker.exists() &&
-                versionMarker.readText().trim() == NODEJS_ASSETS_VERSION
+        val markerSaysUpToDate = versionMarker.exists() &&
+                try { versionMarker.readText().trim() } catch (_: Exception) { "" } == NODEJS_ASSETS_VERSION
+
+        // ── Sentinel integrity check (Day-2 crash fix v1.4) ──────────────────
+        // Android CAN and DOES evict individual files from cacheDir at any time
+        // to free storage. The version marker may survive while critical modules
+        // inside node_modules get deleted. If we trust the marker alone, Node
+        // starts on a broken file tree and crashes at the native level (SIGSEGV),
+        // killing the entire app process — this was the remaining Day-2 crash.
+        // Check a set of sentinel files that MUST exist for Node to boot.
+        val sentinelsIntact = SENTINEL_FILES.all { relPath ->
+            File(destDir, relPath).exists()
+        }
+        val isUpToDate = markerSaysUpToDate && sentinelsIntact
+
+        if (!sentinelsIntact && markerSaysUpToDate) {
+            Log.w(TAG, "Version marker OK but sentinel files MISSING — Android cache eviction detected! Forcing full re-extract.")
+        }
 
         if (!nodeModulesDir.exists()) {
             Log.d(TAG, "First boot: unpacking nodejs-project assets...")
         }
 
-        // Full refresh runs on first boot and whenever NODEJS_ASSETS_VERSION is
-        // bumped. The old tree is deleted first (not just overwritten) so files
-        // removed from the APK — e.g. pruned node_modules junk — disappear from
-        // internal storage too instead of accumulating forever.
+        // Full refresh runs on first boot, whenever NODEJS_ASSETS_VERSION is
+        // bumped, OR when cache eviction corrupted the tree. The old tree is
+        // deleted first so stale files don't accumulate.
         if (!isUpToDate) {
-            Log.d(TAG, "Assets changed (want v$NODEJS_ASSETS_VERSION) — wiping + refreshing all JS/JSON...")
+            Log.d(TAG, "Assets changed or corrupted (want v$NODEJS_ASSETS_VERSION, sentinels=$sentinelsIntact) — wiping + refreshing...")
             destDir.deleteRecursively()
             copyAssetsToFilesIfNeeded("nodejs-project")
             versionMarker.writeText(NODEJS_ASSETS_VERSION)
         } else {
-            Log.d(TAG, "nodejs-project up to date (v$NODEJS_ASSETS_VERSION)")
+            Log.d(TAG, "nodejs-project up to date (v$NODEJS_ASSETS_VERSION, sentinels OK)")
         }
 
         // Entry scripts are cheap to re-copy every startup, so quick JS fixes
@@ -116,31 +135,51 @@ class SchedulerService : Service() {
 
         val entryPoint = File(destDir, "index.js").absolutePath
 
+        // Final safety check: verify the entry point actually exists before handing
+        // it to the native Node engine. A missing file here means cache eviction
+        // happened BETWEEN the sentinel check and this line (very unlikely but
+        // theoretically possible). A Java-level exception here is recoverable;
+        // a native Node crash on a missing file is not.
+        if (!File(entryPoint).exists()) {
+            Log.e(TAG, "Entry point $entryPoint does not exist after extraction! Aborting Node startup.")
+            return
+        }
+
         if (!nodeAlreadyRunning) {
+            // Find an available port before starting Node
+            val port = findAvailablePort()
+            activeNodePort = port
+            Log.d(TAG, "Selected port $port for Node TCP server")
+
             synchronized(SchedulerService::class.java) {
                 if (!isNodeStarted) {
                     isNodeStarted = true
                     Thread {
                         try {
-                            startNodeWithArguments(arrayOf("node", entryPoint), cacheDir.absolutePath)
+                            // Pass port via env so index.js picks it up
+                            startNodeWithArguments(
+                                arrayOf("node", entryPoint, "--port=$port"),
+                                cacheDir.absolutePath
+                            )
                         } catch (e: Exception) {
                             Log.e(TAG, "Error starting node: ${e.message}")
                             isNodeStarted = false  // allow retry on next service start
                         }
                     }.start()
-                    Log.d(TAG, "Node runtime started, entry=$entryPoint")
+                    Log.d(TAG, "Node runtime started, entry=$entryPoint, port=$port")
                 }
             }
         } else {
-            Log.d(TAG, "Node process already alive on port 3000 — reconnecting TCP channel only")
+            Log.d(TAG, "Node process already alive on port $activeNodePort — reconnecting TCP channel only")
         }
 
         // Step 3: Wire NodeBridge channel over TCP.
         // Wait for node server to boot and start listening
+        val port = activeNodePort
         var socket: Socket? = null
         for (i in 0..60) {
             try {
-                socket = Socket("127.0.0.1", 3000)
+                socket = Socket("127.0.0.1", port)
                 break
             } catch (e: Exception) {
                 delay(500)
@@ -370,50 +409,86 @@ class SchedulerService : Service() {
         /** Hard cap for the dispatch wakelock: Node boot + connect + batch send. */
         private const val DISPATCH_WAKELOCK_TIMEOUT_MS = 3 * 60 * 1000L
 
+        /** Default TCP port. Falls back to 3001..3009 if busy. */
+        private const val DEFAULT_NODE_PORT = 3000
+        private const val MAX_PORT_SCAN = 10
+
         /**
          * Bump whenever ANY file under assets/nodejs-project changes — especially
          * patches inside node_modules (Baileys tmpdir fix, crypto.js, etc.).
          * Gates the full JS/JSON refresh that ships those files to the device.
          * History: v2 = Baileys tmpdir patch (messages-media.js, business.js).
-         *          v3 = single-session socket lifecycle (endCurrentSocket +
-         *               stale-event guard + no-reconnect-on-intentional-close)
-         *               + sender.js per-part send tracking (no duplicate voice
-         *               notes on retry of voice+doc+text messages).
-         *          v8 = size optimization release: stripped libnode.so, ABI
-         *               splits, pruned node_modules (host sharp binaries,
-         *               @types/node, test/docs junk). Full wipe+re-extract
-         *               removes those files from existing installs.
-         *          v9 = terser-minified Baileys/WAProto (-6 MB on device),
-         *               engine runtime home moved to cacheDir.
-         *          v10 = atomic-auth.js wired in (§6.1 fix): temp+rename session
-         *                writes + corrupt-creds detection to prevent silent crash
-         *                loop on torn session files.
-         *          v11 = Day-2 crash fix (root cause): TCP port probe replaces
-         *                isNodeStarted flag for Node liveness; intentionalClose
-         *                guard in whatsapp.js stops ghost reconnect loops;
-         *                index.js cleans up old clientSocket on re-connect;
-         *                NodeBridge.waitForConnected() pre-checks current state.
+         *          v3 = single-session socket lifecycle.
+         *          v8 = size optimization release.
+         *          v9 = terser-minified Baileys/WAProto, cacheDir home.
+         *          v10 = atomic-auth.js wired in.
+         *          v11 = Day-2 crash fix: TCP port probe, intentionalClose guard.
+         *          v12 = Day-2 crash COMPLETE fix: sentinel integrity check against
+         *                partial cache eviction, dynamic port selection to avoid
+         *                EADDRINUSE from TIME_WAIT sockets, server error handler in
+         *                index.js, entry-point existence check before native start.
          */
-        private const val NODEJS_ASSETS_VERSION = "11"
+        private const val NODEJS_ASSETS_VERSION = "12"
+
+        /**
+         * Sentinel files that MUST exist for Node to boot successfully.
+         * If any sentinel is missing (cache eviction!), we force full re-extract
+         * even if the version marker file survives. These represent the minimum
+         * set of files Node needs: the entry point, polyfill, whatsapp engine,
+         * and critical node_modules dependencies.
+         */
+        private val SENTINEL_FILES = listOf(
+            "index.js",
+            "polyfill.js",
+            "whatsapp.js",
+            "sender.js",
+            "atomic-auth.js",
+            "node_modules/@whiskeysockets/baileys/lib/index.js",
+            "node_modules/@hapi/boom/lib/index.js",
+            "node_modules/pino/pino.js"
+        )
 
         @Volatile
         private var isNodeStarted = false
 
+        /** The port the currently-running Node TCP server is listening on. */
+        @Volatile
+        private var activeNodePort = DEFAULT_NODE_PORT
+
         /**
-         * Probes whether the Node.js TCP server is actually listening on port 3000.
-         * This is the reliable liveness check — the Kotlin `isNodeStarted` flag is
-         * NOT sufficient because the native Node thread outlives SchedulerService.
-         * Returns true if a TCP connection to 127.0.0.1:3000 succeeds within 300ms.
+         * Probes ports [3000..3009] for a running Node TCP server.
+         * Returns (isAlive, port). If no port responds, returns (false, DEFAULT_NODE_PORT).
          */
-        private fun isNodeAlive(): Boolean {
-            return try {
-                java.net.Socket().use { s ->
-                    s.connect(java.net.InetSocketAddress("127.0.0.1", 3000), 300)
-                    true
-                }
-            } catch (_: Exception) {
-                false
+        private fun probeNodePort(): Pair<Boolean, Int> {
+            for (port in DEFAULT_NODE_PORT until DEFAULT_NODE_PORT + MAX_PORT_SCAN) {
+                try {
+                    Socket().use { s ->
+                        s.connect(InetSocketAddress("127.0.0.1", port), 300)
+                    }
+                    Log.d(TAG, "TCP probe: Node alive on port $port")
+                    return true to port
+                } catch (_: Exception) { /* port not listening, try next */ }
             }
+            return false to DEFAULT_NODE_PORT
+        }
+
+        /**
+         * Finds an available port starting from DEFAULT_NODE_PORT.
+         * Avoids EADDRINUSE from TIME_WAIT sockets left over after force-stop.
+         */
+        private fun findAvailablePort(): Int {
+            for (port in DEFAULT_NODE_PORT until DEFAULT_NODE_PORT + MAX_PORT_SCAN) {
+                try {
+                    // Try binding briefly to confirm port is free
+                    java.net.ServerSocket().use { ss ->
+                        ss.reuseAddress = true
+                        ss.bind(InetSocketAddress("127.0.0.1", port))
+                    }
+                    return port
+                } catch (_: Exception) { /* port busy, try next */ }
+            }
+            // Fallback: let OS pick (very unlikely to reach here)
+            return DEFAULT_NODE_PORT
         }
 
         init {

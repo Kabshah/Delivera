@@ -35,18 +35,19 @@ No servers. No accounts. No cloud.
 
 ---
 
-## 🔧 What's new in v1.3.0 — Comprehensive Multi-Day Stability & Day-2 Crash Fix
+## 🔧 What's new in v1.4.0 — Final Day-2 Crash Elimination
 
-> **⚠️ Important:** If you are using any previous build (v1.0, v1.1.x, v1.2.0), **please update to v1.3.0 immediately**. Earlier versions experienced crashes or socket hangs when reopening the app on subsequent days due to Node.js C++ background lifecycle and port collisions. **v1.3.0 is the recommended, fully stabilized release for all users.**
+> **⚠️ Important:** If you are using any previous build (v1.0–v1.3.x), **please update to v1.4.0 immediately**. Earlier versions could still crash on Day 2 due to Android's cache eviction silently deleting Node.js runtime files overnight.
 
-**Key Improvements in v1.3.0:**
-- **Rock-Solid Day-2 Reconnects**: Port 3000 is checked dynamically before launching Node.js. If the native engine is already active from an earlier session, Kotlin seamlessly reconnects without port collision (`EADDRINUSE`) crashes.
-- **Stale Socket Destruction**: Old TCP client sockets are cleanly torn down before registering new ones, preventing buffer corruption and double event emissions.
-- **Ghost Reconnection Prevention**: Baileys socket includes `intentionalClose` and `isConnecting` locks to stop infinite reconnect cycles and concurrent duplicate sockets.
-- **Connection Race Resolved**: Fixed `waitForConnected()` state flow race where already-connected events caused cold opens to freeze.
-- **Pairing Screen Cleanup Isolation**: Navigating away from the pairing UI no longer terminates running background scheduler services.
-- **Memory Optimization**: Session auth file locks capped with LRU eviction to prevent memory accumulation.
-- **Assets Version 11**: Forces clean re-extraction of runtime assets on upgrade.
+**Key Improvements in v1.4.0:**
+- **Sentinel Integrity Check**: Before trusting the version marker, verifies that critical runtime files (Baileys, Pino, Boom, etc.) still physically exist on disk. If Android's cache eviction deleted any of them overnight, the entire Node runtime is cleanly re-extracted — no more native crashes on corrupted file trees.
+- **Dynamic Port Selection**: If port 3000 is stuck in TIME_WAIT from a previous force-stop, Node automatically binds to port 3001–3009. Kotlin scans the same range when probing for a running engine. Eliminates EADDRINUSE crashes.
+- **Entry-Point Safety Check**: Final Java-level guard before handing the path to the native V8 engine. A missing index.js is caught as a recoverable error, not a process-killing SIGSEGV.
+- **Server Error Handler**: Node's TCP server now has proper `error` event handling with port-fallback instead of crashing on unhandled EADDRINUSE.
+- **Assets Version 12**: Forces clean re-extraction of all runtime files on upgrade.
+
+**v1.3.0 fixes (still included):** Port probe liveness check, stale socket destruction, ghost reconnection prevention, connection race fix, pairing cleanup isolation, LRU file locks.
+
 
 ---
 

@@ -110,13 +110,11 @@ jobs:
             | `Delivra-armeabi-v7a.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
 
             ### What's new in ${{ github.ref_name }}
-            - **Complete Day-2 & Multi-Day Crash Fix**: Probe Node TCP port before starting runtime. Reconnects to already-running Node process without `EADDRINUSE` port collision.
-            - **Socket Reconnection Safety**: Previous Kotlin-to-Node TCP sockets are cleanly destroyed before attaching a new one, eliminating event collision and buffer corruption.
-            - **Baileys Connection Guards**: Added `intentionalClose` to stop rogue reconnect loops after disconnect and `isConnecting` to prevent concurrent Baileys socket creation.
-            - **StateFlow Race Condition Fix**: `waitForConnected()` pre-checks current connection state before suspending, preventing indefinite hangs on app open.
-            - **Service Lifecycle Isolation**: `PairingViewModel` no longer tears down `SchedulerService` when navigating away if it was triggered by alarms for scheduled delivery.
-            - **Bounded File Locks**: Prevent memory leaks in atomic session auth by bounding mutexes with LRU eviction.
-            - **Engine Assets Version 11**: Forces automatic re-extraction of clean runtime assets on existing device upgrades.
+            - **Eliminated Android Cache Eviction Day-2 Crash**: Added Sentinel Integrity Check across 8 critical runtime files. Corrupted or partially cleared cache is automatically wiped and re-extracted from APK assets.
+            - **Dynamic Port Selection (3000-3009)**: Prevents EADDRINUSE crashes caused by TIME_WAIT sockets after force-close.
+            - **Native V8 Entry-Point Safety**: Kotlin verifies physical file presence before calling native startNodeWithArguments.
+            - **Server Error Handler**: Node.js TCP server handles bind errors gracefully with port fallback.
+            - **Assets Version 12**: Fresh clean extraction of all runtime assets on app update.
 
             ### Installation
             ```bash

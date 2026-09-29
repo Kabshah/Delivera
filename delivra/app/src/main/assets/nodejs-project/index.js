@@ -32,6 +32,21 @@ process.on('unhandledRejection', (reason, promise) => {
 
 let clientSocket = null;
 
+// ── Dynamic port selection ────────────────────────────────────────────────
+// Kotlin passes --port=XXXX as a CLI argument. Fall back to 3000.
+function getRequestedPort() {
+  for (const arg of process.argv) {
+    if (arg.startsWith('--port=')) {
+      const p = parseInt(arg.split('=')[1], 10);
+      if (p > 0 && p < 65536) return p;
+    }
+  }
+  return 3000;
+}
+
+const REQUESTED_PORT = getRequestedPort();
+const MAX_PORT_ATTEMPTS = 10;
+
 // The TCP server that Kotlin connects to
 const server = net.createServer((socket) => {
   // Bug 2 fix: if a previous Kotlin connection is still open (Day-2 re-connect),
@@ -154,9 +169,33 @@ const server = net.createServer((socket) => {
   }); // End socket.on('data')
 }); // End net.createServer
 
-server.listen(3000, '127.0.0.1', () => {
-    console.log('[Delivra Node engine] TCP Server ready on port 3000');
-});
+// ── Listen with error handling + port fallback ──────────────────────────────
+// EADDRINUSE from TIME_WAIT sockets (force-stop race) was a Day-2 crash vector.
+// Try the requested port first, then scan upward. Kotlin scans the same range
+// when probing for an already-running Node process.
+function tryListen(port, attemptsLeft) {
+  if (attemptsLeft <= 0) {
+    console.error('[Delivra Node engine] FATAL: Could not bind any port in range. Exiting.');
+    // Don't process.exit — let the uncaughtException handler + Kotlin timeout deal with it.
+    return;
+  }
+
+  server.once('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[Delivra Node engine] Port ${port} busy (EADDRINUSE), trying ${port + 1}...`);
+      tryListen(port + 1, attemptsLeft - 1);
+    } else {
+      console.error('[Delivra Node engine] Server error:', err.message);
+    }
+  });
+
+  server.listen({ port, host: '127.0.0.1', exclusive: true }, () => {
+    const actualPort = server.address().port;
+    console.log(`[Delivra Node engine] TCP Server ready on port ${actualPort}`);
+  });
+}
+
+tryListen(REQUESTED_PORT, MAX_PORT_ATTEMPTS);
 
 function sendResponse(obj) {
   if (clientSocket && !clientSocket.destroyed) {
