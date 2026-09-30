@@ -7,6 +7,13 @@ on:
       - 'v*'
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub release from this run'
+        required: false
+        type: boolean
+        default: false
 
 # GITHUB_TOKEN needs contents:write to publish Releases (default is read-only)
 permissions:
@@ -57,6 +64,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
       - name: Build debug APKs (per-ABI splits)
         run: ./gradlew assembleDebug --no-daemon
 
@@ -84,18 +94,19 @@ jobs:
       - name: Upload release APKs
         uses: actions/upload-artifact@v4
         with:
-          name: delivra-release-unsigned
+          name: delivra-release
           path: |
             dist/*arm64-v8a.apk
             dist/*armeabi-v7a.apk
 
-      # On tag push: attach APKs to a GitHub Release
+      # On tag push (or workflow_dispatch with create_release): attach APKs to a GitHub Release
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true)
         uses: softprops/action-gh-release@v2
         with:
           name: Delivra ${{ github.ref_name }}
           make_latest: true
+          generate_release_notes: true
           files: |
             dist/Delivra-arm64-v8a.apk
             dist/Delivra-armeabi-v7a.apk
@@ -110,11 +121,11 @@ jobs:
             | `Delivra-armeabi-v7a.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
 
             ### What's new in ${{ github.ref_name }}
-            - **Eliminated Android Cache Eviction Day-2 Crash**: Added Sentinel Integrity Check across 8 critical runtime files. Corrupted or partially cleared cache is automatically wiped and re-extracted from APK assets.
-            - **Dynamic Port Selection (3000-3009)**: Prevents EADDRINUSE crashes caused by TIME_WAIT sockets after force-close.
-            - **Native V8 Entry-Point Safety**: Kotlin verifies physical file presence before calling native startNodeWithArguments.
-            - **Server Error Handler**: Node.js TCP server handles bind errors gracefully with port fallback.
-            - **Assets Version 12**: Fresh clean extraction of all runtime assets on app update.
+            - **Fixed Media Scheduling Failures**: Scheduled voice notes, images, and document attachments now reliably deliver without being deleted before retries.
+            - **WhatsApp Media Upload TLS Agent**: Integrated `fetchAgent` with custom certificate handling for Baileys media uploads to WhatsApp servers (`mmg.whatsapp.net`).
+            - **Extended Media Send Timeout**: Increased bridge timeout to 120s for media sends with progressive retry backoff.
+            - **Fixed App Storage Bloat**: Automated lifecycle cleanup of staged attachments across message cancellation, review resolution, and periodic 7-day sweeps.
+            - **Assets Version 13**: Automatically triggers fresh re-extraction of updated Node.js bridge scripts on device upgrade.
 
             ### Installation
             ```bash

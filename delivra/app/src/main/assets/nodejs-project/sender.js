@@ -15,7 +15,7 @@
 import { getSocket } from './whatsapp.js';
 import fs from 'fs';
 
-const NON_RETRYABLE_REASONS = new Set(['invalid_jid', 'media_too_large', 'source_file_unavailable']);
+const NON_RETRYABLE_REASONS = new Set(['invalid_jid', 'media_too_large', 'source_file_unavailable', 'zero_byte_file_error']);
 
 // A message can combine voice note + document + text, sent as separate
 // WhatsApp messages. If part 2 fails after part 1 went out, a naive retry
@@ -134,6 +134,9 @@ function classifyError(err) {
   if (msg.includes('too large') || msg.includes('413')) return 'media_too_large';
   if (msg.includes('timeout')) return 'network_timeout';
   if (msg.includes('connection')) return 'connection_closed';
+  if (msg.includes('enoent')) return 'source_file_unavailable';
+  if (msg.includes('media upload failed')) return 'media_upload_failed';
+  if (msg.includes('certificate') || msg.includes('cert') || msg.includes('ssl')) return 'tls_certificate_error';
   return `unknown_error: ${err?.message || 'no_message'}`;
 }
 

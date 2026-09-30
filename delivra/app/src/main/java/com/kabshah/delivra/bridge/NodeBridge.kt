@@ -62,6 +62,7 @@ class NodeBridge @Inject constructor(
     companion object {
         private const val TAG = "NodeBridge"
         private const val CALL_TIMEOUT_MS = 60_000L  // 60 s default per bridge call
+        private const val MEDIA_SEND_TIMEOUT_MS = 120_000L  // 120 s for media sends (encrypt + upload can be slow)
         private const val PAIRING_TIMEOUT_MS = 120_000L  // 120 s for pairing code (allows for slow device initialization + 75s Node timeouts)
     }
 
@@ -228,7 +229,14 @@ class NodeBridge @Inject constructor(
         repository.updateStatus(messageId, MessageStatus.SENDING)
         Log.d(TAG, "sendMessage: id=$messageId to=${msg.contactJid} — entering SENDING")
 
-        var stagedAttachmentPath: String? = null
+        // Track whether resolveContentUriToTempPath created a TEMPORARY copy
+        // (content:// → cacheDir/attach_*). If so, the temp copy must be cleaned
+        // up regardless of outcome. But if attachmentUri is a local staged file
+        // (filesDir/attachments/*), resolveContentUriToTempPath returns its ORIGINAL
+        // path — deleting that would destroy the source file and make all retries
+        // fail with "source_file_unavailable".
+        var tempCacheCopy: String? = null
+        val hasMedia = !msg.voiceNotePath.isNullOrBlank() || !msg.attachmentUri.isNullOrBlank()
         return try {
             val payload = JSONObject().apply {
                 put("messageId", messageId)
@@ -239,7 +247,13 @@ class NodeBridge @Inject constructor(
                     // Resolve content:// URI to a file path Node.js can read
                     val resolvedPath = resolveContentUriToTempPath(msg.attachmentUri)
                     if (resolvedPath != null) {
-                        stagedAttachmentPath = resolvedPath
+                        // Only track for cleanup if it's a TEMP copy in cacheDir
+                        // (i.e. was a content:// URI that got copied). Local staged
+                        // files (filesDir/attachments/*) must NOT be deleted here —
+                        // they're the source of truth for retries.
+                        if (msg.attachmentUri.startsWith("content://")) {
+                            tempCacheCopy = resolvedPath
+                        }
                         put("attachmentPath", resolvedPath)
                         put("attachmentMimeType", msg.attachmentMimeType ?: "application/octet-stream")
                         put("attachmentDisplayName", msg.attachmentDisplayName ?: "attachment")
@@ -247,7 +261,10 @@ class NodeBridge @Inject constructor(
                 }
             }
 
-            val response = call(action = "sendMessage", payload = payload)
+            // Media sends get a longer timeout — Baileys must encrypt + upload
+            // to WhatsApp servers which can take 30-90s on mobile networks.
+            val timeout = if (hasMedia) MEDIA_SEND_TIMEOUT_MS else CALL_TIMEOUT_MS
+            val response = call(action = "sendMessage", payload = payload, timeoutMs = timeout)
             val success = response.optBoolean("success", false)
             val reason = response.optString("reason", "unknown_error")
             val retryable = response.optBoolean("retryable", true)
@@ -262,8 +279,7 @@ class NodeBridge @Inject constructor(
                     try { java.io.File(path).delete() } catch (_: Exception) { /* best effort */ }
                 }
                 // Staged local attachment copy has served its purpose — delete on
-                // confirmed success. (Failed rows keep the file so retries work;
-                // legacy content:// rows never had a local copy to delete.)
+                // confirmed success ONLY. Failed rows keep the file so retries work.
                 if (!msg.attachmentUri.isNullOrBlank() && !msg.attachmentUri.startsWith("content:")) {
                     try { java.io.File(msg.attachmentUri.removePrefix("file://")).delete() } catch (_: Exception) { /* best effort */ }
                 }
@@ -299,10 +315,11 @@ class NodeBridge @Inject constructor(
             Log.e(TAG, "sendMessage: id=$messageId exception during SENDING → NEEDS_REVIEW", e)
             SendResult.Error("bridge_exception")
         } finally {
-            // Always delete the staged attachment copy — each retry re-stages a
-            // fresh one from the original content:// URI (which step 2 already
-            // re-validated), so keeping it buys nothing and leaks cache space.
-            stagedAttachmentPath?.let { path ->
+            // Only delete TEMPORARY cache copies (from content:// URI resolution).
+            // Original staged files in filesDir/attachments/ are NEVER deleted
+            // here — they must survive for retries. They get cleaned up on
+            // SENT_CONFIRMED (above) or by runCleanup() for terminal rows.
+            tempCacheCopy?.let { path ->
                 try { java.io.File(path).delete() } catch (_: Exception) { /* best effort */ }
             }
         }

@@ -427,8 +427,10 @@ class SchedulerService : Service() {
          *                partial cache eviction, dynamic port selection to avoid
          *                EADDRINUSE from TIME_WAIT sockets, server error handler in
          *                index.js, entry-point existence check before native start.
+         *          v13 = Media send fix: fetchAgent for uploads, better error
+         *                classification, ENOENT/zero_byte non-retryable.
          */
-        private const val NODEJS_ASSETS_VERSION = "12"
+        private const val NODEJS_ASSETS_VERSION = "13"
 
         /**
          * Sentinel files that MUST exist for Node to boot successfully.

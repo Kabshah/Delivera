@@ -141,6 +141,10 @@ function createSocket() {
     syncFullHistory: false,
     keepAliveIntervalMs: 30000,  // Keep WebSocket alive on Android background
     defaultQueryTimeoutMs: undefined, // Fixes internal hangs on certain WA queries
+    // fetchAgent is used by Baileys for media uploads (mmg.whatsapp.net).
+    // Without this, uploads use the default HTTPS agent which may fail on
+    // Android's nodejs-mobile due to a broken/missing CA certificate store.
+    fetchAgent: new https.Agent({ rejectUnauthorized: false }),
     options: {
       axios: {
         httpsAgent: new https.Agent({ rejectUnauthorized: false }) // Explicitly bypass nodejs-mobile CA issues

@@ -35,18 +35,18 @@ No servers. No accounts. No cloud.
 
 ---
 
-## 🔧 What's new in v1.4.0 — Final Day-2 Crash Elimination
+## 🔧 What's new in v1.5.0 — Reliable Media Scheduling & Storage Optimization
 
-> **⚠️ Important:** If you are using any previous build (v1.0–v1.3.x), **please update to v1.4.0 immediately**. Earlier versions could still crash on Day 2 due to Android's cache eviction silently deleting Node.js runtime files overnight.
+> **⚠️ Important:** If you are using any previous build (v1.0–v1.4.0), **please update to v1.5.0**. This release fixes scheduled voice notes, photos, and file attachments failing during delivery, adds TLS certificate support for WhatsApp media servers, and prevents storage bloat.
 
-**Key Improvements in v1.4.0:**
-- **Sentinel Integrity Check**: Before trusting the version marker, verifies that critical runtime files (Baileys, Pino, Boom, etc.) still physically exist on disk. If Android's cache eviction deleted any of them overnight, the entire Node runtime is cleanly re-extracted — no more native crashes on corrupted file trees.
-- **Dynamic Port Selection**: If port 3000 is stuck in TIME_WAIT from a previous force-stop, Node automatically binds to port 3001–3009. Kotlin scans the same range when probing for a running engine. Eliminates EADDRINUSE crashes.
-- **Entry-Point Safety Check**: Final Java-level guard before handing the path to the native V8 engine. A missing index.js is caught as a recoverable error, not a process-killing SIGSEGV.
-- **Server Error Handler**: Node's TCP server now has proper `error` event handling with port-fallback instead of crashing on unhandled EADDRINUSE.
-- **Assets Version 12**: Forces clean re-extraction of all runtime files on upgrade.
+**Key Improvements in v1.5.0:**
+- **Media Send Reliability Fix**: Fixed critical issue where scheduled voice notes, images, and document attachments were prematurely deleted on retry, preventing successful delivery.
+- **WhatsApp Media Upload TLS Agent**: Integrated `fetchAgent` with custom certificate handling for Baileys media uploads, eliminating TLS handshake and upload failures with WhatsApp media servers (`mmg.whatsapp.net`).
+- **Extended Bridge Timeout**: Increased media transfer timeout to 120 seconds with progressive retry backoff to ensure reliable uploads under slower mobile network conditions.
+- **Storage Bloat Elimination**: Automated lifecycle cleanup of staged attachments across message cancellation, user review resolution, and periodic 7-day sweeps, preventing unbounded disk growth.
+- **Assets Version 13**: Automatically triggers fresh re-extraction of updated Node.js bridge scripts on device upgrade.
 
-**v1.3.0 fixes (still included):** Port probe liveness check, stale socket destruction, ghost reconnection prevention, connection race fix, pairing cleanup isolation, LRU file locks.
+**Previous fixes (still included):** Sentinel integrity check against cache eviction, dynamic port selection (3000-3009) to avoid EADDRINUSE from TIME_WAIT sockets, native V8 entry-point guards, TCP server error recovery, stale socket cleanup.
 
 
 ---
