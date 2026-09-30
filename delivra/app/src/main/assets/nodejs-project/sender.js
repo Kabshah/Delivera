@@ -50,69 +50,83 @@ async function sendMessage(payload) {
   try {
     const jid = normalizeJid(contactJid);
 
+    // ── Voice note ──────────────────────────────────────────────────────
     if (voiceNotePath && !done.has('voice')) {
-      // Send as genuine WhatsApp PTT voice note (§4.3)
-      // Audio must already be Opus/OGG (transcoded at attach time, §6.4a)
-      const audio = fs.readFileSync(voiceNotePath);
+      console.log('[Delivra sender] Sending voice note:', voiceNotePath);
+      if (!fs.existsSync(voiceNotePath)) {
+        console.error('[Delivra sender] Voice note file missing:', voiceNotePath);
+        return { success: false, reason: 'source_file_unavailable', retryable: false };
+      }
+      const vnSize = fs.statSync(voiceNotePath).size;
+      if (vnSize === 0) {
+        console.error('[Delivra sender] Voice note file is zero bytes');
+        return { success: false, reason: 'zero_byte_file_error', retryable: false };
+      }
+      // Use file-path streaming (url:) instead of readFileSync — avoids V8
+      // heap pressure on nodejs-mobile and lets Baileys stream the file
+      // directly through its encrypt→upload pipeline.
+      console.log('[Delivra sender] Voice note size:', vnSize, 'bytes — sending as PTT');
       await sock.sendMessage(jid, {
-        audio,
+        audio: { url: voiceNotePath },
         ptt: true,  // PTT = Push-To-Talk = voice note bubble in WhatsApp
         mimetype: 'audio/ogg; codecs=opus',
       });
       done.add('voice');
+      console.log('[Delivra sender] Voice note sent successfully');
     }
 
+    // ── File attachment (image / document) ───────────────────────────────
     if (attachmentPath && !done.has('doc')) {
-      // Attachment from persistent URI (now accessible as a file path passed by Kotlin)
+      console.log('[Delivra sender] Sending attachment:', attachmentPath, 'mime:', attachmentMimeType);
       if (!fs.existsSync(attachmentPath)) {
+        console.error('[Delivra sender] Attachment file missing:', attachmentPath);
         return { success: false, reason: 'source_file_unavailable', retryable: false };
       }
       const fileSize = fs.statSync(attachmentPath).size;
-      // WhatsApp practical media limit ≈ 100MB for documents
       if (fileSize > 100 * 1024 * 1024) {
         return { success: false, reason: 'media_too_large', retryable: false };
       }
-
       if (fileSize === 0) {
         return { success: false, reason: 'zero_byte_file_error', retryable: false };
       }
 
       const isImage = (attachmentMimeType || '').startsWith('image/');
+      console.log('[Delivra sender] Attachment size:', fileSize, 'bytes, isImage:', isImage);
 
       if (isImage) {
-        // Deliver images (png/jpg/webp/screenshots) as real WhatsApp photos —
-        // viewable inline in the chat, not as file tiles.
         const content = {
-          image: { url: attachmentPath }, // Stream from file path (memory-safe)
+          image: { url: attachmentPath },
           mimetype: attachmentMimeType || 'image/png',
         };
-        // If the user also wrote a message, send it as the photo's caption
-        // (one cohesive message instead of two). Only marked done AFTER the
-        // send succeeds, so a failed send retries with caption intact.
         if (messageText && !done.has('text')) {
           content.caption = messageText;
         }
         await sock.sendMessage(jid, content);
         if (content.caption) done.add('text');
+        console.log('[Delivra sender] Image sent successfully');
       } else {
         await sock.sendMessage(jid, {
-          document: { url: attachmentPath }, // Stream directly from file path! Prevents Mobile memory crashes
+          document: { url: attachmentPath },
           mimetype: attachmentMimeType || 'application/octet-stream',
           fileName: attachmentDisplayName || 'attachment',
         });
+        console.log('[Delivra sender] Document sent successfully');
       }
       done.add('doc');
     }
 
+    // ── Plain text ──────────────────────────────────────────────────────
     if (messageText && !done.has('text')) {
       await sock.sendMessage(jid, { text: messageText });
       done.add('text');
+      console.log('[Delivra sender] Text sent successfully');
     }
 
-    completedParts.delete(messageId); // fully delivered — nothing to remember
+    completedParts.delete(messageId);
     return { success: true, messageId };
 
   } catch (err) {
+    console.error('[Delivra sender] sendMessage error:', err.message, err.stack || '');
     const reason = classifyError(err);
     return {
       success: false,

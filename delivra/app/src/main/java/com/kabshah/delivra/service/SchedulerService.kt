@@ -429,8 +429,10 @@ class SchedulerService : Service() {
          *                index.js, entry-point existence check before native start.
          *          v13 = Media send fix: fetchAgent for uploads, better error
          *                classification, ENOENT/zero_byte non-retryable.
+         *          v14 = Voice note streaming fix (url: instead of readFileSync),
+         *                Day-2 stale socket cleanup in whatsapp.js, rich rose UI.
          */
-        private const val NODEJS_ASSETS_VERSION = "13"
+        private const val NODEJS_ASSETS_VERSION = "14"
 
         /**
          * Sentinel files that MUST exist for Node to boot successfully.

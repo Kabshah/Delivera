@@ -35,18 +35,18 @@ No servers. No accounts. No cloud.
 
 ---
 
-## 🔧 What's new in v1.5.0 — Reliable Media Scheduling & Storage Optimization
+## 🔧 What's new in v1.6.0 — Voice Note Fix, Day 2 Crash Fix & Rich Rose UI
 
-> **⚠️ Important:** If you are using any previous build (v1.0–v1.4.0), **please update to v1.5.0**. This release fixes scheduled voice notes, photos, and file attachments failing during delivery, adds TLS certificate support for WhatsApp media servers, and prevents storage bloat.
+> **⚠️ Important:** If you are using any previous build (v1.0–v1.5.0), **please update to v1.6.0**. This release fixes voice notes, images, and file attachments that were failing to send, fixes the app crash when opening on Day 2, and refreshes the UI palette to a rich dusty rose.
 
-**Key Improvements in v1.5.0:**
-- **Media Send Reliability Fix**: Fixed critical issue where scheduled voice notes, images, and document attachments were prematurely deleted on retry, preventing successful delivery.
-- **WhatsApp Media Upload TLS Agent**: Integrated `fetchAgent` with custom certificate handling for Baileys media uploads, eliminating TLS handshake and upload failures with WhatsApp media servers (`mmg.whatsapp.net`).
-- **Extended Bridge Timeout**: Increased media transfer timeout to 120 seconds with progressive retry backoff to ensure reliable uploads under slower mobile network conditions.
-- **Storage Bloat Elimination**: Automated lifecycle cleanup of staged attachments across message cancellation, user review resolution, and periodic 7-day sweeps, preventing unbounded disk growth.
-- **Assets Version 13**: Automatically triggers fresh re-extraction of updated Node.js bridge scripts on device upgrade.
+**Key Improvements in v1.6.0:**
+- **Voice Note & File Sending Fix**: Voice notes, images, and document attachments (PDF, Word, etc.) now reliably deliver. Switched voice notes from in-memory Buffer loading to file-path streaming so Baileys can stream directly through its encrypt→upload pipeline.
+- **Day 2 App Crash Fix**: Fixed crash when opening the app on Day 2. The Node.js process outlives the Android Service; Day 2 reconnects now properly clean up stale Baileys WebSocket state before creating a fresh connection.
+- **Rich Rose UI Palette**: Deepened the entire color palette from a washed-out light pink to a rich, warm dusty rose. Surfaces are now visibly rose-tinted, buttons use a premium gradient, and text has better contrast.
+- **Enhanced Media Diagnostics**: Added per-step logging for voice note, image, and document sends to help diagnose failures.
+- **Assets Version 14**: Automatically triggers fresh re-extraction of updated Node.js bridge scripts on device upgrade.
 
-**Previous fixes (still included):** Sentinel integrity check against cache eviction, dynamic port selection (3000-3009) to avoid EADDRINUSE from TIME_WAIT sockets, native V8 entry-point guards, TCP server error recovery, stale socket cleanup.
+**Previous fixes (still included):** Media TLS agent for uploads, extended bridge timeout, storage bloat cleanup, sentinel integrity check, dynamic port selection, atomic session writes, TCP server error recovery.
 
 
 ---

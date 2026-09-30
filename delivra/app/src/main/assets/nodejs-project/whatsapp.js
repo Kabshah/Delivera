@@ -71,6 +71,17 @@ async function connectToWhatsApp(sesDir, onEvent) {
   // reconnect backoffs triggered from this session work normally.
   intentionalClose = false;
 
+  // Day 2 fix: if a stale socket exists from a previous session (the Node
+  // process outlives the Android Service), tear it down cleanly before
+  // creating a new one. Without this, the old socket's event listeners
+  // fire into stale state and cause crashes or send failures.
+  if (sock) {
+    console.log('[Delivra Node] Cleaning up stale socket from previous session');
+    try { sock.ev.removeAllListeners(); } catch (_) {}
+    try { sock.end(undefined); } catch (_) {}
+    sock = null;
+  }
+
   sessionDir = sesDir;
   connectionCallback = onEvent;
 
@@ -124,6 +135,17 @@ let pairingReadyPromise = null;
 
 function createSocket() {
   console.log('[Delivra Node] Creating WASocket with version:', currentVersion);
+
+  // Day 2 fix: tear down the previous Baileys socket's event listeners
+  // before creating a new one. Otherwise, two sockets fight over the
+  // same auth state and the 'connection.update' handler from the old
+  // socket triggers stale reconnect logic.
+  if (sock) {
+    console.log('[Delivra Node] Destroying previous WASocket before creating new one');
+    try { sock.ev.removeAllListeners(); } catch (_) {}
+    try { sock.end(undefined); } catch (_) {}
+    sock = null;
+  }
 
   // Reset pairing readiness state for the new socket
   pairingReadyPromise = new Promise((resolve) => {
@@ -269,8 +291,11 @@ function disconnectWhatsApp() {
   // reconnect timer. If we set it after, the race means the timer gets queued anyway.
   intentionalClose = true;
   isConnectingOrConnected = false;
-  sock?.end(undefined);
-  sock = null;
+  if (sock) {
+    try { sock.ev.removeAllListeners(); } catch (_) {}
+    try { sock.end(undefined); } catch (_) {}
+    sock = null;
+  }
 }
 
 function getConnectionState() {

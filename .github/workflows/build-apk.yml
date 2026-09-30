@@ -121,11 +121,11 @@ jobs:
             | `Delivra-armeabi-v7a.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
 
             ### What's new in ${{ github.ref_name }}
-            - **Fixed Media Scheduling Failures**: Scheduled voice notes, images, and document attachments now reliably deliver without being deleted before retries.
-            - **WhatsApp Media Upload TLS Agent**: Integrated `fetchAgent` with custom certificate handling for Baileys media uploads to WhatsApp servers (`mmg.whatsapp.net`).
-            - **Extended Media Send Timeout**: Increased bridge timeout to 120s for media sends with progressive retry backoff.
-            - **Fixed App Storage Bloat**: Automated lifecycle cleanup of staged attachments across message cancellation, review resolution, and periodic 7-day sweeps.
-            - **Assets Version 13**: Automatically triggers fresh re-extraction of updated Node.js bridge scripts on device upgrade.
+            - **Voice Note & File Sending Fix**: Voice notes, images, and document attachments (PDF, Word, etc.) now reliably deliver on Day 1. Switched voice notes from `readFileSync` (Buffer) to file-path streaming (`url:`) so Baileys can stream directly through its encrypt→upload pipeline, eliminating V8 heap pressure on nodejs-mobile.
+            - **Day 2 App Crash Fix**: Fixed crash when opening the app on Day 2 by properly cleaning up stale Baileys WebSocket state. The Node.js process outlives the Android Service, so Day 2 reconnects now tear down old event listeners and socket state before creating a fresh connection.
+            - **Rich Rose UI Palette**: Deepened the entire color palette from a washed-out light pink to a rich, warm dusty rose matching the README banner. Surfaces are now visibly rose-tinted, buttons use a premium gradient, and text has better contrast.
+            - **Enhanced Media Diagnostics**: Added per-step logging for voice note, image, and document sends so failures can be diagnosed from the Settings → Debug Events screen.
+            - **Assets Version 14**: Automatically triggers fresh re-extraction of updated Node.js bridge scripts on device upgrade.
 
             ### Installation
             ```bash
