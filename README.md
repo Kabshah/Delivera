@@ -118,10 +118,28 @@ Get contact suggestions directly from your phone book for faster message schedul
 
 ## Architecture
 
-- **Kotlin + Jetpack Compose** - UI, Room database, alarm/backstop scheduling, retry state machine
-- **Embedded Node.js (nodejs-mobile)** - hosts the Baileys WhatsApp engine inside the app process, started only when there is something to send
-- **Local TCP bridge** - correlation-id matched JSON channel between Kotlin and Node
-- **Offline-first** - the only network traffic is with WhatsApp itself
+```
+┌───────────────────────────  Your phone  ───────────────────────────┐
+│                                                                    │
+│  Compose UI ──► Room DB ──► AlarmManager (exact)                   │
+│      ▲                            │  due time                      │
+│      │                            ▼                                │
+│  ViewModels         WorkManager backstop (OS minimum: 15 min)      │
+│                                 │                                  │
+│                                 ▼                                  │
+│                    SchedulerService (foreground)                   │
+│                          │            ▲                            │
+│                    starts Node.js localhost TCP :3000              │
+│                          ▼            │  (JSON lines bridge)       │
+│              Node.js runtime ─────────┘                            │
+│              └─ Baileys engine ──► WhatsApp (multi-device TLS)     │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+- **Kotlin + Jetpack Compose** — UI, Room database, alarm/backstop scheduling, retry state machine
+- **Embedded Node.js (nodejs-mobile)** — hosts the Baileys WhatsApp engine inside the same app process, started only when there is something to send
+- **Local TCP bridge** — typed JSON request/response channel between Kotlin and Node, correlation-id matched
+- **Fully offline-first** — no shared backend, no analytics, no telemetry; the only network traffic is with WhatsApp itself
 
 ---
 
