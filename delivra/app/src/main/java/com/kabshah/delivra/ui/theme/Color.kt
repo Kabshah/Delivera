@@ -2,29 +2,29 @@ package com.kabshah.delivra.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ─── Dusty Rose palette (user-directed: Soft/dusty pink combo, no bright white) ───
-// Primary rose accent range (Dark button color like in the screenshot)
-val RosePrimary = Color(0xFFBE8787)        // muted blush rose — primary accent
-val RoseLight = Color(0xFFD4A3A3)          // lighter for gradients
-val RoseDark = Color(0xFFA87171)           // darker for gradients/pressed
-val RoseDeep = Color(0xFF905959)           // deep rose, secondary labels
+// ─── Rich Dusty Rose palette (deep rose like the README banner) ─────────────
+// Primary rose accent range
+val RosePrimary = Color(0xFFA85B6E)        // deep warm rose — primary accent
+val RoseLight = Color(0xFFCC8A97)          // lighter for gradients & highlights
+val RoseDark = Color(0xFF8E4358)           // darker for gradients/pressed states
+val RoseDeep = Color(0xFF7A3748)           // deep rose, secondary labels
 
-// Surface colors — strictly no white surfaces.
-val SurfaceBase = Color(0xFFF0D6D0)        // base app background — exact requested shade
-val SurfaceCard = Color(0xFFF0D6D0)        // cards — same as background per user request
-val SurfaceTinted = Color(0xFFE8C8C3)      // deepest surface — just enough tint for avatars/icons to show
-val SurfaceInputBg = Color(0xFFF0D6D0)     // inputs — same as background
-// Borders — a soft, delicate, complementary line to frame the flat elements
-val BorderSoft = Color(0xFFE4BEB7)         // very light, delicate border for cards
-val BorderInput = Color(0xFFDBABA3)        // slightly more visible for inputs
-val BorderContact = Color(0xFFDBABA3)
-val BorderDash = Color(0xFFDFAFA9)
+// Surface colors — warm rose-tinted, never white.
+val SurfaceBase = Color(0xFFE8C4C0)        // warm dusty rose background — clearly rose-tinted
+val SurfaceCard = Color(0xFFF0D4CF)        // cards — slightly lighter than background for lift
+val SurfaceTinted = Color(0xFFDDB1AC)      // deepest surface — for avatars/icons/chips
+val SurfaceInputBg = Color(0xFFF2D9D4)     // inputs — soft rose, slightly lighter than card
+// Borders — warm rose lines to frame elements
+val BorderSoft = Color(0xFFD9A8A0)         // card borders
+val BorderInput = Color(0xFFCF9991)        // input field borders — more visible
+val BorderContact = Color(0xFFCF9991)
+val BorderDash = Color(0xFFD49E97)
 
 // Text colors — warm tinted darks (NO pure black)
-val TextPrimary = Color(0xFF4A3B39)        // warm dark neutral — primary text/icons
-val TextSecondary = Color(0xFF7D6B68)      // secondary body
-val TextMuted = Color(0xFFA1908D)          // placeholder / muted labels
-val TextCaption = Color(0xFFB09F9C)        // section labels, captions
+val TextPrimary = Color(0xFF3D2C2A)        // deep warm brown — primary text/icons
+val TextSecondary = Color(0xFF6E5652)      // secondary body
+val TextMuted = Color(0xFF9A8581)          // placeholder / muted labels
+val TextCaption = Color(0xFFAD9B97)        // section labels, captions
 
 // Status colors — within the dusty rose palette
 // Pending — warm amber
@@ -33,19 +33,19 @@ val StatusPendingFg = Color(0xFFB8792E)
 val StatusPendingDot = Color(0xFFE8A54B)
 
 // Sending — soft rose
-val StatusSendingBg = Color(0xFFF3E4E1)
-val StatusSendingFg = Color(0xFFA8645D)
+val StatusSendingBg = Color(0xFFF0DAD6)
+val StatusSendingFg = Color(0xFF9E524A)
 val StatusSendingDot = Color(0xFFC98F8A)
 
 // Sent — sage/muted green
-val StatusSentBg = Color(0xFFE7EFE4)
-val StatusSentFg = Color(0xFF5E7A57)
+val StatusSentBg = Color(0xFFE2EDDF)
+val StatusSentFg = Color(0xFF527049)
 val StatusSentDot = Color(0xFF8FA88C)
 
 // Failed — muted brick-red
-val StatusFailedBg = Color(0xFFF6E4E1)
-val StatusFailedFg = Color(0xFFB85C4F)
-val StatusFailedDot = Color(0xFFB85C4F)
+val StatusFailedBg = Color(0xFFF3DAD6)
+val StatusFailedFg = Color(0xFFB05145)
+val StatusFailedDot = Color(0xFFB05145)
 
 // Needs Review — muted mustard/ochre
 val StatusNeedsReviewBg = Color(0xFFF6EFD9)
@@ -53,9 +53,10 @@ val StatusNeedsReviewFg = Color(0xFF96771A)
 val StatusNeedsReviewDot = Color(0xFFC9A227)
 
 // Cancel/delete button (Pending card only, §2.4)
-val DeleteButtonBg = Color(0xFFF6E4E1)
-val DeleteIconColor = Color(0xFFB85C4F)
+val DeleteButtonBg = Color(0xFFF3DAD6)
+val DeleteIconColor = Color(0xFFB05145)
 
-// FAB and Schedule Msg buttons — User wants solid dark button exactly like "Get Pairing Code"
-val FabGradientStart = Color(0xFFBE8787)
-val FabGradientEnd = Color(0xFFBE8787)
+// FAB and Schedule Msg buttons — deep rose gradient for premium feel
+val FabGradientStart = Color(0xFFA85B6E)
+val FabGradientEnd = Color(0xFF8E4358)
+

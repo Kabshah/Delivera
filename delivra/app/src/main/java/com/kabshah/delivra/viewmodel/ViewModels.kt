@@ -308,6 +308,12 @@ class PairingViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(PairingUiState())
     val uiState: StateFlow<PairingUiState> = _uiState.asStateFlow()
 
+    // Bug 5 fix: track whether THIS ViewModel started the service so we only
+    // stop it in onCleared() if we own it. Stopping a service that was started
+    // by AlarmManager (for a due scheduled send) while onCleared() fires would
+    // kill an in-flight send and leave the message stuck in SENDING → NEEDS_REVIEW.
+    private var serviceStartedByUs = false
+
     init {
         viewModelScope.launch {
             nodeBridge.connectionState.collect { state ->
@@ -339,6 +345,7 @@ class PairingViewModel @Inject constructor(
                     putExtra("keep_alive", true)
                 }
                 context.startForegroundService(intent)
+                serviceStartedByUs = true  // Bug 5: mark that WE started this service
                 
                 // Wait for Node TCP channel to initialize
                 val channelDeadline = System.currentTimeMillis() + 60_000L
@@ -370,6 +377,12 @@ class PairingViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        context.stopService(android.content.Intent(context, com.kabshah.delivra.service.SchedulerService::class.java))
+        // Bug 5 fix: only stop the service if we started it. If AlarmManager fired
+        // a dispatch while the user was on the pairing screen, stopping the service
+        // here would kill a legitimate in-flight send.
+        if (serviceStartedByUs) {
+            context.stopService(android.content.Intent(context, com.kabshah.delivra.service.SchedulerService::class.java))
+            serviceStartedByUs = false
+        }
     }
 }

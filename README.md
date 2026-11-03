@@ -1,87 +1,118 @@
-# Delivra
+<div align="center">
+  <img src=".github/assets/banner.svg" alt="Delivra - schedule WhatsApp messages that send automatically" width="100%"/>
+</div>
 
-**Schedule WhatsApp messages that send automatically — even when your phone is locked.**
+# Delivra (Whatsapp scheduler for android)
 
-Delivra is a fully on-device WhatsApp scheduler for Android. Pick a contact, pick a date &
-time, attach anything you like — Delivra wakes up on schedule, delivers the message through
-your own WhatsApp account, and goes back to sleep. No servers, no accounts, no cloud.
+**Schedule WhatsApp messages that send automatically - even when your phone is locked.**
+
+Fully on-device. Pick a contact, pick a date & time, attach anything you like - Delivra wakes
+up on schedule, delivers the message through your own WhatsApp account, and goes back to sleep.
+No servers. No accounts. No cloud.
+
+## Get Delivra
+
+<div align="center">
+
+**For most phones** - Samsung / Xiaomi / OnePlus / Pixel / Redmi / Realme / Vivo / Oppo
+*(every device sold since ~2017)*
+
+<a href="https://github.com/Kabshah/Delivera/releases/latest/download/Delivra-arm64-v8a.apk">
+  <img src=".github/assets/btn-arm64.svg" alt="Download for arm64-v8a" height="76"/>
+</a>
+
+<br><br><br>
+
+**Only for older 32-bit-only phones** *(rarely needed)*
+
+<a href="https://github.com/Kabshah/Delivera/releases/latest/download/Delivra-armeabi-v7a.apk">
+  <img src=".github/assets/btn-v7a.svg" alt="Download for armeabi-v7a" height="60"/>
+</a>
+
+<sub>Both buttons always download the newest release automatically.</sub>
+
+</div>
 
 ---
 
-## Overview
+## 🔧 What's new in v1.6.0 — Voice Note Fix, Day 2 Crash Fix & Rich Rose UI
+
+> **⚠️ Important:** If you are using any previous build (v1.0–v1.5.0), **please update to v1.6.0**. This release fixes voice notes, images, and file attachments that were failing to send, fixes the app crash when opening on Day 2, and refreshes the UI palette to a rich dusty rose.
+
+**Key Improvements in v1.6.0:**
+- **Voice Note & File Sending Fix**: Voice notes, images, and document attachments (PDF, Word, etc.) now reliably deliver. Switched voice notes from in-memory Buffer loading to file-path streaming so Baileys can stream directly through its encrypt→upload pipeline.
+- **Day 2 App Crash Fix**: Fixed crash when opening the app on Day 2. The Node.js process outlives the Android Service; Day 2 reconnects now properly clean up stale Baileys WebSocket state before creating a fresh connection.
+- **Rich Rose UI Palette**: Deepened the entire color palette from a washed-out light pink to a rich, warm dusty rose. Surfaces are now visibly rose-tinted, buttons use a premium gradient, and text has better contrast.
+- **Enhanced Media Diagnostics**: Added per-step logging for voice note, image, and document sends to help diagnose failures.
+- **Assets Version 14**: Automatically triggers fresh re-extraction of updated Node.js bridge scripts on device upgrade.
+
+**Previous fixes (still included):** Media TLS agent for uploads, extended bridge timeout, storage bloat cleanup, sentinel integrity check, dynamic port selection, atomic session writes, TCP server error recovery.
+
+
+---
+
+## What Delivra does
 
 | | |
 |---|---|
-| **What it does** | Schedules WhatsApp messages (text, voice notes, images, PDFs/docs) and sends them automatically at the chosen moment |
-| **How it sends** | Links to your WhatsApp as a *companion device* (same protocol as WhatsApp Web) and delivers through your account |
-| **Where data lives** | Entirely on your phone — schedules, session keys, attachments. There is no backend server |
-| **Battery philosophy** | Connect-on-demand: the app runs only for a couple of minutes around each scheduled send, never in the background otherwise |
-
-### Features
-
-- 📅 Exact date + time scheduling with timezone-safe alarms
-- 💬 Text, 🎙 voice notes (real WhatsApp PTT), 🖼 inline images, 📎 PDF/Word/document attachments
-- 🔁 Automatic retries with backoff, failure notifications, and a "Needs Review" safety state so nothing double-sends silently
-- 🌙 Screen-off delivery via exact alarms + battery-optimization exemption (one-tap toggle inside the app)
-- 👤 Contact suggestions from your phone book
-- 📦 Two slim APKs (~56 MB) covering every phone from 2017 onwards — Android 8.0+
+| **What** | Schedules WhatsApp messages (text, voice notes, images, PDFs/docs) and delivers them automatically at the exact moment you choose |
+| **How** | Links to your WhatsApp as a *companion device* - same protocol as WhatsApp Web - and sends through your own account |
+| **Where your data lives** | Entirely on your phone: schedules, session keys, attachments. No backend server, no analytics, no telemetry |
+| **Battery philosophy** | Connect-on-demand: the app runs only ~2 minutes around each scheduled send. The rest of the time it does not exist |
 
 ---
 
-## Download & Install
+## ✨ Feature Highlights
 
-**⬇ [Download for most phones — arm64-v8a](https://github.com/Kabshah/Delivera/releases/latest/download/Delivra-arm64-v8a.apk)**  
-Samsung · Xiaomi · OnePlus · Pixel · Redmi · Realme · Vivo · Oppo — every phone sold since ~2017. *Start here.*
+### 🗓️ Exact Date & Time Scheduling
+Schedule messages precisely with timezone-safe date and time handling.
 
-**⬇ [Download for older 32-bit phones — armeabi-v7a](https://github.com/Kabshah/Delivera/releases/latest/download/Delivra-armeabi-v7a.apk)**  
-Only if the arm64 APK refuses to install.
+### 💬 Rich Message Support
+Send text messages, real PTT voice notes, inline photos, PDFs, Word files, and other documents.
 
-> Both buttons always fetch the newest release directly — no need to browse GitHub Releases.
-> Using an old version? The original v1.0 remains available in [past releases](../../releases).
+### 🌙 Screen-Off Delivery
+Reliable scheduled delivery even when the screen is off, using exact alarms and a one-tap battery-optimization setup.
 
-### Install steps
+### 🔄 Smart Retry System
+Automatic retries with backoff, failure notifications, and a **Needs Review** state to prevent silent duplicate sends.
 
-1. Tap a button above to download the APK
-2. Open the downloaded file; allow **"Install from unknown sources"** if asked
-3. Open Delivra → enter your WhatsApp number → you'll get an 8-character code
-4. In WhatsApp: **Settings → Linked Devices → Link a Device → "Link with phone number instead"** → enter the code
-5. Toggle **Reliable delivery** ON (Home screen) so scheduled sends work while the screen is off
+### 👥 Contact Suggestions
+Get contact suggestions directly from your phone book for faster message scheduling.
 
 ---
 
-## ⚠️ Honesty Notes
+## Getting started
 
-Please read before installing — we'd rather over-explain than over-promise:
-
-- **Delivery is near-scheduled, not second-perfect.** Messages normally go out within a few
-  minutes of the target time. OEM power management (especially Samsung) can occasionally delay wakeups.
-- **The Reliable delivery toggle matters.** Android blocks network access in deep sleep;
-  without the battery-optimization exemption, screen-off sends will fail. The app asks once — allowing it costs no extra battery because Delivra still only wakes for its own sends.
-- **WhatsApp linked sessions can expire** after long periods without any WhatsApp activity
-  (historically ~14 days). Normal daily use avoids this.
-- **Attachments must stay reachable.** Files are read at send time — deleting or moving an
-  attachment before its schedule causes a clear "source file unavailable" failure, not a silent drop.
-- **Crash mid-send = "Needs Review".** If the app dies during a send, the outcome is ambiguous,
-  so the message lands in Needs Review for a manual check instead of risking a duplicate.
-- **RECEIVE_BOOT_COMPLETED** exists solely to re-register alarms after a reboot — nothing else.
-- **The 15-minute WorkManager interval** is an OS minimum, not a design choice.
+1. Tap **DOWNLOAD ARM64-V8A** above (green button only if your phone is ancient)
+2. Open the downloaded file, allow **Install from unknown sources** if asked
+3. Open Delivra, enter your WhatsApp number, receive an 8-character code
+4. In WhatsApp: **Settings > Linked Devices > Link a Device > "Link with phone number instead"**, type the code
+5. Flip the **Reliable delivery** toggle on the Home screen - this makes scheduled sends survive a locked screen
 
 ---
+
+## Screenshots
+
+| Message Screen                                                                       | Scheduled Message                                                                    | Home Screen                                                                       |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| ![](https://github.com/user-attachments/assets/f31a0265-61b9-42c3-9c90-3276f50e6456) | ![](https://github.com/user-attachments/assets/3903556b-f159-4d3a-a065-5a2a550b348c) | ![](https://github.com/user-attachments/assets/56b13f53-571b-4b3b-8687-dbf522821b59) |
+
+
 
 ## Permissions Explained
 
-| Permission | Why it's needed |
+| Permission | Why |
 |---|---|
-| `INTERNET` | Speak the WhatsApp Web multi-device protocol |
-| `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM` | Fire sends at the precise minute you picked |
-| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Lets the app ask (once) to be exempt from Doze so screen-off sends reach the network |
-| `FOREGROUND_SERVICE` (+ `connectedDevice` type) | Runs briefly around each send; shows a small notification while working |
-| `RECEIVE_BOOT_COMPLETED` | Re-register all pending schedules after reboot — nothing more |
-| `WAKE_LOCK` | Keep the CPU awake for the few minutes a dispatch takes |
-| `POST_NOTIFICATIONS` | Failure alerts and the temporary "sending…" notification |
-| `READ_CONTACTS` | Name/photo suggestions while composing a message |
+| `INTERNET` | Speak the WhatsApp multi-device protocol |
+| `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM` | Fire sends at the minute you picked |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | One-time ask to bypass Doze so locked-screen sends reach the network |
+| `FOREGROUND_SERVICE` (`connectedDevice`) | Brief foreground session around each send, with a visible notification |
+| `RECEIVE_BOOT_COMPLETED` | Restore schedules after reboot - nothing else |
+| `WAKE_LOCK` | Hold the CPU for the few minutes a dispatch takes |
+| `POST_NOTIFICATIONS` | Failure alerts + temporary sending notification |
+| `READ_CONTACTS` | Contact name/photo suggestions while composing |
 | `RECORD_AUDIO` | In-app voice-note recording |
-| `READ_EXTERNAL_STORAGE` (≤ Android 12) | Legacy read path for attachments picked via SAF |
+| `READ_EXTERNAL_STORAGE` (Android 12 and below) | Legacy attachment read path |
 
 ---
 
@@ -112,4 +143,4 @@ Please read before installing — we'd rather over-explain than over-promise:
 
 ---
 
-*Delivra is an independent utility and is not affiliated with WhatsApp or Meta.*
+> &nbsp;*Delivra is an independent productivity and scheduling utility for WhatsApp messaging. It is not affiliated with, endorsed by, or officially connected to WhatsApp or Meta.*

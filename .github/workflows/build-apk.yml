@@ -7,6 +7,13 @@ on:
       - 'v*'
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub release from this run'
+        required: false
+        type: boolean
+        default: false
 
 # GITHUB_TOKEN needs contents:write to publish Releases (default is read-only)
 permissions:
@@ -33,7 +40,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install NDK + CMake (required for the libnode native build)
         run: sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1" > /dev/null
@@ -57,22 +64,24 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
       - name: Build debug APKs (per-ABI splits)
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Build release APKs (per-ABI splits, unsigned)
+      - name: Build release APKs (per-ABI splits, signed with the committed release key)
         run: ./gradlew assembleRelease --no-daemon
 
-      # Gradle emits *-unsigned.apk names for split release builds; stage them
-      # under clean STATIC names so the README's releases/latest/download
-      # permalinks keep working across future versions.
+      # Release APKs are SIGNED by app/build.gradle.kts (committed keystore) —
+      # Gradle emits plain *-release.apk names. Debug APKs keep their names.
       - name: Stage APKs with friendly names
         run: |
           mkdir -p "${{ github.workspace }}/dist"
           cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk        "${{ github.workspace }}/dist/Delivra-arm64-v8a-debug.apk"
           cp app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk      "${{ github.workspace }}/dist/Delivra-armeabi-v7a-debug.apk"
-          cp app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk   "${{ github.workspace }}/dist/Delivra-arm64-v8a.apk"
-          cp app/build/outputs/apk/release/app-armeabi-v7a-release-unsigned.apk "${{ github.workspace }}/dist/Delivra-armeabi-v7a.apk"
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk    "${{ github.workspace }}/dist/Delivra-arm64-v8a.apk"
+          cp app/build/outputs/apk/release/app-armeabi-v7a-release.apk  "${{ github.workspace }}/dist/Delivra-armeabi-v7a.apk"
 
       - name: Upload debug APKs
         uses: actions/upload-artifact@v4
@@ -85,28 +94,38 @@ jobs:
       - name: Upload release APKs
         uses: actions/upload-artifact@v4
         with:
-          name: delivra-release-unsigned
+          name: delivra-release
           path: |
             dist/*arm64-v8a.apk
             dist/*armeabi-v7a.apk
 
-      # On tag push: attach APKs to a GitHub Release
+      # On tag push (or workflow_dispatch with create_release): attach APKs to a GitHub Release
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true)
         uses: softprops/action-gh-release@v2
         with:
+          name: Delivra ${{ github.ref_name }}
+          make_latest: true
+          generate_release_notes: true
           files: |
             dist/Delivra-arm64-v8a.apk
             dist/Delivra-armeabi-v7a.apk
           body: |
             ## Delivra ${{ github.ref_name }}
 
-            **Two APK variants — pick the one matching your CPU (unsigned, so enable "Install from unknown sources" or use adb):**
+            **Two APK variants — pick the one matching your CPU:**
 
             | File | For devices |
             |---|---|
             | `Delivra-arm64-v8a.apk` | **Almost every phone from ~2017 onwards** (Snapdragon, Exynos, Dimensity, Unisoc T6xx+…) — start here |
             | `Delivra-armeabi-v7a.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
+
+            ### What's new in ${{ github.ref_name }}
+            - **Voice Note & File Sending Fix**: Voice notes, images, and document attachments (PDF, Word, etc.) now reliably deliver on Day 1. Switched voice notes from `readFileSync` (Buffer) to file-path streaming (`url:`) so Baileys can stream directly through its encrypt→upload pipeline, eliminating V8 heap pressure on nodejs-mobile.
+            - **Day 2 App Crash Fix**: Fixed crash when opening the app on Day 2 by properly cleaning up stale Baileys WebSocket state. The Node.js process outlives the Android Service, so Day 2 reconnects now tear down old event listeners and socket state before creating a fresh connection.
+            - **Rich Rose UI Palette**: Deepened the entire color palette from a washed-out light pink to a rich, warm dusty rose matching the README banner. Surfaces are now visibly rose-tinted, buttons use a premium gradient, and text has better contrast.
+            - **Enhanced Media Diagnostics**: Added per-step logging for voice note, image, and document sends so failures can be diagnosed from the Settings → Debug Events screen.
+            - **Assets Version 14**: Automatically triggers fresh re-extraction of updated Node.js bridge scripts on device upgrade.
 
             ### Installation
             ```bash
@@ -121,6 +140,7 @@ jobs:
             - `POST_NOTIFICATIONS` — failure/review alerts
             - `INTERNET` — WhatsApp Web multi-device protocol (Baileys)
 
-            See [README](delivra/README.md) for full setup and known reliability caveats.
+            See [README](README.md) for full setup and known reliability caveats.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

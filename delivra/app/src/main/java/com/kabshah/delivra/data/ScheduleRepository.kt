@@ -46,6 +46,12 @@ class ScheduleRepository @Inject constructor(
         msg.voiceNotePath?.let { path ->
             try { java.io.File(path).delete() } catch (e: Exception) { /* best effort */ }
         }
+        // Clean up staged attachment file if any (local files only)
+        if (!msg.attachmentUri.isNullOrBlank() && !msg.attachmentUri.startsWith("content:")) {
+            try {
+                java.io.File(msg.attachmentUri.removePrefix("file://")).delete()
+            } catch (_: Exception) { /* best effort */ }
+        }
         dao.deleteById(id)
         Log.d(TAG, "Cancelled and deleted PENDING message id=$id")
     }
@@ -128,8 +134,16 @@ class ScheduleRepository @Inject constructor(
         val failedRows = dao.getFailedForCleanup(failed24h)
 
         (sentRows + failedRows).forEach { msg ->
+            // Clean up app-owned voice note file
             msg.voiceNotePath?.let { path ->
                 try { java.io.File(path).delete() } catch (e: Exception) { /* best effort */ }
+            }
+            // Clean up staged attachment file (filesDir/attachments/*). Only local
+            // files — content:// URIs are external and not ours to delete.
+            if (!msg.attachmentUri.isNullOrBlank() && !msg.attachmentUri.startsWith("content:")) {
+                try {
+                    java.io.File(msg.attachmentUri.removePrefix("file://")).delete()
+                } catch (_: Exception) { /* best effort */ }
             }
             dao.deleteById(msg.id)
         }
@@ -146,18 +160,44 @@ class ScheduleRepository @Inject constructor(
                 try { f.delete() } catch (_: Exception) { /* best effort */ }
             }
         }
+
+        // Orphaned staged attachment files in filesDir/attachments/ that no
+        // longer have a corresponding DB row (e.g. crash between staging and
+        // DB insert). Sweep files older than the failed-cleanup window —
+        // any active message's attachment would be far newer.
+        val attachDir = java.io.File(context.filesDir, "attachments")
+        if (attachDir.isDirectory) {
+            attachDir.listFiles()?.forEach { f ->
+                if (f.lastModified() < staleCutoff) {
+                    try { f.delete() } catch (_: Exception) { /* best effort */ }
+                }
+            }
+        }
+
+        // Orphaned voice note files
+        val vnDir = java.io.File(context.filesDir, "voice_notes")
+        if (vnDir.isDirectory) {
+            vnDir.listFiles()?.forEach { f ->
+                if (f.lastModified() < staleCutoff) {
+                    try { f.delete() } catch (_: Exception) { /* best effort */ }
+                }
+            }
+        }
     }
 
     // ── Needs Review resolution (§6.2) ─────────────────────────────────────
     /**
      * User checked WhatsApp: the message went through (or they don't care) —
-     * delete the row and any app-owned voice file immediately.
+     * delete the row and any app-owned media files immediately.
      */
     suspend fun resolveNeedsReview(id: String) {
         val msg = dao.getById(id) ?: return
         if (msg.status != MessageStatus.NEEDS_REVIEW) return
         msg.voiceNotePath?.let { path ->
             try { java.io.File(path).delete() } catch (_: Exception) { /* best effort */ }
+        }
+        if (!msg.attachmentUri.isNullOrBlank() && !msg.attachmentUri.startsWith("content:")) {
+            try { java.io.File(msg.attachmentUri.removePrefix("file://")).delete() } catch (_: Exception) { /* best effort */ }
         }
         dao.deleteById(id)
         Log.d(TAG, "Needs Review id=$id resolved by user — deleted")

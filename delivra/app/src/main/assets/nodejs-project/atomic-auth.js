@@ -26,12 +26,25 @@ import { initAuthCreds } from './node_modules/@whiskeysockets/baileys/lib/Utils/
 import { BufferJSON } from './node_modules/@whiskeysockets/baileys/lib/Utils/generics.js';
 
 const fileLocks = new Map();
+// Bug 7 fix: bound the fileLocks Map to prevent unbounded memory growth.
+// Each unique session file path gets a Mutex entry that would otherwise
+// accumulate forever. Cap at 100 entries with LRU eviction (insert-order
+// Map iteration is guaranteed by the spec, so the first key is oldest).
+const FILE_LOCKS_MAX = 100;
 const getFileLock = (path) => {
+    // LRU: move to tail (most-recently-used) by delete+re-add
     let mutex = fileLocks.get(path);
-    if (!mutex) {
-        mutex = new Mutex();
+    if (mutex) {
+        fileLocks.delete(path);
         fileLocks.set(path, mutex);
+        return mutex;
     }
+    mutex = new Mutex();
+    if (fileLocks.size >= FILE_LOCKS_MAX) {
+        // Evict the oldest entry (first key in insertion order)
+        fileLocks.delete(fileLocks.keys().next().value);
+    }
+    fileLocks.set(path, mutex);
     return mutex;
 };
 
