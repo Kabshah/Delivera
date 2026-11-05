@@ -62,12 +62,13 @@ async function sendMessage(payload) {
         console.error('[Delivra sender] Voice note file is zero bytes');
         return { success: false, reason: 'zero_byte_file_error', retryable: false };
       }
-      // Use file-path streaming (url:) instead of readFileSync — avoids V8
-      // heap pressure on nodejs-mobile and lets Baileys stream the file
-      // directly through its encrypt→upload pipeline.
+      // Use readFileSync (Buffer) instead of { url: path } streaming.
+      // nodejs-mobile's createReadStream can silently fail or produce
+      // truncated reads — Buffers are the reliable path on this runtime.
+      // Voice notes are max ~480KB (5 min Opus), so heap pressure is negligible.
       console.log('[Delivra sender] Voice note size:', vnSize, 'bytes — sending as PTT');
       await sock.sendMessage(jid, {
-        audio: { url: voiceNotePath },
+        audio: fs.readFileSync(voiceNotePath),
         ptt: true,  // PTT = Push-To-Talk = voice note bubble in WhatsApp
         mimetype: 'audio/ogg; codecs=opus',
       });
@@ -95,7 +96,7 @@ async function sendMessage(payload) {
 
       if (isImage) {
         const content = {
-          image: { url: attachmentPath },
+          image: fs.readFileSync(attachmentPath),
           mimetype: attachmentMimeType || 'image/png',
         };
         if (messageText && !done.has('text')) {
@@ -106,7 +107,7 @@ async function sendMessage(payload) {
         console.log('[Delivra sender] Image sent successfully');
       } else {
         await sock.sendMessage(jid, {
-          document: { url: attachmentPath },
+          document: fs.readFileSync(attachmentPath),
           mimetype: attachmentMimeType || 'application/octet-stream',
           fileName: attachmentDisplayName || 'attachment',
         });

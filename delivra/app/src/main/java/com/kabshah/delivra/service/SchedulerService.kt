@@ -432,7 +432,7 @@ class SchedulerService : Service() {
          *          v14 = Voice note streaming fix (url: instead of readFileSync),
          *                Day-2 stale socket cleanup in whatsapp.js, rich rose UI.
          */
-        private const val NODEJS_ASSETS_VERSION = "14"
+        private const val NODEJS_ASSETS_VERSION = "15"
 
         /**
          * Sentinel files that MUST exist for Node to boot successfully.

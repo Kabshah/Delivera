@@ -257,6 +257,14 @@ class NodeBridge @Inject constructor(
                         put("attachmentPath", resolvedPath)
                         put("attachmentMimeType", msg.attachmentMimeType ?: "application/octet-stream")
                         put("attachmentDisplayName", msg.attachmentDisplayName ?: "attachment")
+                    } else {
+                        // Attachment URI is set but the file can't be resolved — fail
+                        // explicitly instead of silently sending text-only.
+                        Log.e(TAG, "resolveContentUriToTempPath returned null for ${msg.attachmentUri}")
+                        repository.updateStatus(messageId, MessageStatus.FINAL_FAILURE, "source_file_unavailable")
+                        ringBuffer.record(RingEvent.SendFailed(messageId, "source_file_unavailable"))
+                        failureNotifier.notifyFailed(msg.contactName, "source_file_unavailable", messageId)
+                        return SendResult.Error("source_file_unavailable")
                     }
                 }
             }
