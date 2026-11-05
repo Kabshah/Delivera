@@ -4,15 +4,14 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.workDataOf
+import com.kabshah.delivra.service.SchedulerService
 
 /**
  * Receives AlarmManager exact-alarm fires.
- * Routes into the single WorkManager dispatcher (§6.8) rather than starting
- * a second independent execution path — so there's structurally one dispatcher.
+ *
+ * Dispatches directly to SchedulerService for instantaneous exact-alarm delivery
+ * without waiting on WorkManager queue delays or Android Doze deferral.
+ * Also triggers BackstopWorker.runOnceNow() for reconciliation.
  */
 class AlarmReceiver : BroadcastReceiver() {
 
@@ -23,18 +22,21 @@ class AlarmReceiver : BroadcastReceiver() {
             Log.e(TAG, "AlarmReceiver: missing message ID in intent")
             return
         }
-        Log.d(TAG, "Alarm fired for message id=$messageId — routing to WorkManager dispatcher")
+        Log.d(TAG, "Alarm fired for message id=$messageId — dispatching to SchedulerService")
 
-        // Route through unique work — same entry point as WorkManager backstop (§6.8)
-        val workRequest = OneTimeWorkRequestBuilder<BackstopWorker>()
-            .setInputData(workDataOf("triggered_message_id" to messageId))
-            .build()
+        // 1. Immediate direct dispatch to Foreground Service (instant send on alarm fire)
+        try {
+            SchedulerService.dispatchDueMessages(context, listOf(messageId))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start SchedulerService directly: ${e.message}", e)
+        }
 
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            Constants.WORK_DISPATCH,
-            ExistingWorkPolicy.KEEP,  // If already running, don't start a duplicate
-            workRequest
-        )
+        // 2. Also run reconciliation pass via BackstopWorker
+        try {
+            BackstopWorker.runOnceNow(context)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to trigger BackstopWorker: ${e.message}", e)
+        }
     }
 
     companion object {

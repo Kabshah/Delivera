@@ -281,7 +281,7 @@ class SchedulerService : Service() {
             var wakeLock: android.os.PowerManager.WakeLock? = null
             try {
                 // Wait for bridge channel to be initialized by setupNodeRuntime
-                val deadline = System.currentTimeMillis() + 30_000L
+                val deadline = System.currentTimeMillis() + 90_000L
                 while (!nodeBridge.isChannelInitialized && System.currentTimeMillis() < deadline) {
                     delay(200)
                 }
