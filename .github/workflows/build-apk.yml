@@ -54,6 +54,10 @@ jobs:
         working-directory: delivra/app/src/main/assets/nodejs-project
         run: npm install --production
 
+      - name: Verify and apply Baileys runtime patches
+        working-directory: delivra
+        run: node tools/minify-engine.mjs --patch-only
+
       - name: Cache Gradle packages
         uses: actions/cache@v4
         with:

@@ -39,6 +39,7 @@ function resolveWritableTmpDir() {
 const delivraTmp = resolveWritableTmpDir();
 if (delivraTmp) {
   try { process.env.TMPDIR = delivraTmp; } catch (_) {}
+  try { os.tmpdir = () => delivraTmp; } catch (_) {}
 }
 // Consumed by the patched Baileys getTmpFilesDirectory() in
 // Utils/messages-media.js and Utils/business.js — see
