@@ -5,7 +5,11 @@
     <!-- Core permissions -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- dataSync: correct type for network-based scheduled message sends.
+         connectedDevice was wrong (requires Bluetooth/NFC/USB) and caused
+         ForegroundServiceStartNotAllowedException on Android 14 when started
+         from an exact-alarm BroadcastReceiver while app is in background. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -59,10 +63,14 @@
             </intent-filter>
         </receiver>
 
-        <!-- Foreground Service (hosts Node.js + Baileys) -->
+        <!-- Foreground Service (hosts Node.js + Baileys).
+             Type "dataSync" = network data transfer. This is the ONLY type that
+             Android 14+ allows to be started from an exact-alarm BroadcastReceiver
+             in the background without throwing ForegroundServiceStartNotAllowedException.
+             The matching FOREGROUND_SERVICE_DATA_SYNC permission is declared above. -->
         <service
             android:name=".service.SchedulerService"
-            android:foregroundServiceType="connectedDevice"
+            android:foregroundServiceType="dataSync"
             android:exported="false" />
 
         <!-- Disable WorkManager auto-init so DelivraApp.Configuration.Provider
@@ -92,4 +100,3 @@
 
     </application>
 </manifest>
-

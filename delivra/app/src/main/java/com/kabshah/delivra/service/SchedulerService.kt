@@ -7,8 +7,11 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import androidx.core.app.ServiceCompat
 import com.kabshah.delivra.MainActivity
 import com.kabshah.delivra.bridge.NodeBridge
 import com.kabshah.delivra.bridge.NodeJsMobile
@@ -45,7 +48,17 @@ class SchedulerService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
-        startForeground(NOTIFICATION_ID, buildForegroundNotification())
+        // Android 14+ requires explicitly specifying the foreground service type.
+        // Use ServiceCompat.startForeground so older Android versions still work.
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            buildForegroundNotification(),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            else
+                0
+        )
         Log.d(TAG, "SchedulerService created — setting up Node runtime")
         serviceScope.launch(Dispatchers.IO) {
             setupNodeRuntime()
@@ -432,7 +445,7 @@ class SchedulerService : Service() {
          *          v14 = Voice note streaming fix (url: instead of readFileSync),
          *                Day-2 stale socket cleanup in whatsapp.js, rich rose UI.
          */
-        private const val NODEJS_ASSETS_VERSION = "16"
+        private const val NODEJS_ASSETS_VERSION = "17"
 
         /**
          * Sentinel files that MUST exist for Node to boot successfully.
