@@ -67,11 +67,19 @@ async function sendMessage(payload) {
       // truncated reads — Buffers are the reliable path on this runtime.
       // Voice notes are max ~480KB (5 min Opus), so heap pressure is negligible.
       console.log('[Delivra sender] Voice note size:', vnSize, 'bytes — sending as PTT');
-      await sock.sendMessage(jid, {
+      // seconds + waveform come from Kotlin (platform MediaCodec decode — see
+      // VoiceNoteRecorder.computeWaveform). Without a waveform WhatsApp clients
+      // refuse to play the PTT bubble; Baileys' own audio-decode path can't
+      // decode Opus and the package isn't even installed.
+      const voiceContent = {
         audio: fs.readFileSync(voiceNotePath),
         ptt: true,  // PTT = Push-To-Talk = voice note bubble in WhatsApp
         mimetype: 'audio/ogg; codecs=opus',
-      });
+      };
+      if (payload.voiceNoteSeconds) voiceContent.seconds = payload.voiceNoteSeconds;
+      if (payload.voiceNoteWaveform) voiceContent.waveform = Buffer.from(payload.voiceNoteWaveform, 'base64');
+      console.log('[Delivra sender] Voice note metadata: seconds=', voiceContent.seconds ?? '(baileys will derive)', 'waveform=', voiceContent.waveform ? `${voiceContent.waveform.length}B` : '(none)');
+      await sock.sendMessage(jid, voiceContent);
       done.add('voice');
       console.log('[Delivra sender] Voice note sent successfully');
     }

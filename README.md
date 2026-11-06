@@ -35,9 +35,22 @@ No servers. No accounts. No cloud.
 
 ---
 
-## 🔧 What's new in v1.6.0 — Voice Note Fix, Day 2 Crash Fix & Rich Rose UI
+## 🔧 What's new in v1.6.1 — Media Send Fix (attachments & voice notes)
 
-> **⚠️ Important:** If you are using any previous build (v1.0–v1.5.0), **please update to v1.6.0**. This release fixes voice notes, images, and file attachments that were failing to send, fixes the app crash when opening on Day 2, and refreshes the UI palette to a rich dusty rose.
+> **⚠️ Important:** If voice notes, images, PDFs, or Word files were failing to send while text messages worked, **update to v1.6.1**. This release fixes the engine-side bug that silently killed every media send, and adds a build-time gate so a silently broken engine can never ship again.
+
+**Key Improvements in v1.6.1:**
+- **Media send fix (all attachment types)**: WhatsApp media uploads require a `media_conn` query before the upload. The embedded Baileys engine cached that query's promise — if it failed once (slow network at dispatch time, server rejecting an outdated protocol version), *every* media send failed for the rest of the session while plain text kept working. The engine now resets the cache on failure and re-fetches, so media recovers automatically.
+- **Modern protocol version fallback**: the engine previously fell back to a hardcoded ~2024 protocol version whenever the live version fetch timed out (common during scheduled sends with the screen off). It now uses the version bundled with the installed Baileys library, matching what WhatsApp servers currently accept.
+- **Build-time patch verification**: the engine's runtime patches (temp-dir fix, buffer uploads, media-conn guard) are now verified on every build — a Baileys upgrade that breaks a patch fails CI instead of shipping broken media.
+- **Local pipeline smoke test**: `node tools/test-media-pipeline.mjs` exercises document/image/voice-note encryption + upload end-to-end against a local TLS server before release.
+- **Assets Version 18**: triggers automatic re-extraction of the patched engine on upgrade.
+
+**Previous fixes (still included):** voice note / image / document sending reliability, Day 2 & Day 25 crash fixes, rich rose UI palette, media TLS agent, extended bridge timeout, storage bloat cleanup, sentinel integrity check, dynamic port selection, atomic session writes, TCP server error recovery.
+
+---
+
+## 🔧 What's new in v1.6.0 — Voice Note Fix, Day 2 Crash Fix & Rich Rose UI
 
 **Key Improvements in v1.6.0:**
 - **Voice Note & File Sending Fix**: Voice notes, images, and document attachments (PDF, Word, etc.) now reliably deliver. Switched voice notes from in-memory Buffer loading to file-path streaming so Baileys can stream directly through its encrypt→upload pipeline.

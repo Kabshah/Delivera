@@ -56,6 +56,18 @@ class NodeBridge @Inject constructor(
 
     // nodejs-mobile-android channel — lazily obtained once Node starts
     private var channel: NodeJsMobile.Channel? = null
+
+    // Generation counter: bumped on every initChannel()/resetChannel(). Readers
+    // capture the generation they belong to, and a reader that wakes up AFTER
+    // its generation was retired (a "zombie" — serviceScope.cancel() does not
+    // interrupt a blocking readLine(), it only ends when the socket dies) is
+    // no longer allowed to mutate the shared connection state. Live evidence
+    // 2026-11-06: a zombie reader's EOF set ConnectionState.ERROR while a fresh
+    // dispatch was waiting for CONNECTED, failing the send with a bogus
+    // "WhatsApp session invalid — re-link required".
+    @Volatile
+    private var channelGeneration = 0
+
     val isChannelInitialized: Boolean
         get() = channel != null
 
@@ -84,13 +96,22 @@ class NodeBridge @Inject constructor(
      * a dead socket. Resetting to DISCONNECTED forces a real CONNECTED emission.
      */
     fun resetChannel() {
+        // Close the underlying socket so any blocked reader coroutine returns
+        // immediately instead of staying blocked until the next Node-side
+        // socket churn. Its EOF is ignored via the generation guard below.
+        try { channel?.close() } catch (_: Exception) { /* best effort */ }
         channel = null
+        channelGeneration++
         _connectionState.value = ConnectionState.DISCONNECTED
-        Log.d(TAG, "Channel reset + connection state reset to DISCONNECTED for fresh Day-2 start")
+        Log.d(TAG, "Channel reset (gen=$channelGeneration) + connection state reset to DISCONNECTED")
     }
+
+    /** Generation of the currently-initialised channel — captured by readers for zombie detection. */
+    fun currentChannelGeneration(): Int = channelGeneration
 
     fun initChannel(ch: NodeJsMobile.Channel) {
         channel = ch
+        channelGeneration++
         ch.setMessageListener { raw ->
             try {
                 val json = JSONObject(raw)
@@ -242,7 +263,27 @@ class NodeBridge @Inject constructor(
                 put("messageId", messageId)
                 put("contactJid", msg.contactJid)
                 if (!msg.messageText.isNullOrBlank()) put("messageText", msg.messageText)
-                if (!msg.voiceNotePath.isNullOrBlank()) put("voiceNotePath", msg.voiceNotePath)
+                if (!msg.voiceNotePath.isNullOrBlank()) {
+                    put("voiceNotePath", msg.voiceNotePath)
+                    // WhatsApp PTT bubbles need `seconds` + `waveform` to render and
+                    // PLAY correctly. The Node engine can't derive either: Baileys'
+                    // duration path (music-metadata) and waveform path (audio-decode,
+                    // not even installed) both fail for OGG/Opus in this runtime.
+                    // Compute both here with the platform codecs and hand them over.
+                    try {
+                        com.kabshah.delivra.attachments.VoiceNoteRecorder.readDurationSeconds(msg.voiceNotePath)
+                            ?.let { put("voiceNoteSeconds", it) }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "voice duration read failed: ${e.message}")
+                    }
+                    try {
+                        com.kabshah.delivra.attachments.VoiceNoteRecorder.computeWaveform(msg.voiceNotePath)?.let { wf ->
+                            put("voiceNoteWaveform", android.util.Base64.encodeToString(wf, android.util.Base64.NO_WRAP))
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "voice waveform compute failed: ${e.message}")
+                    }
+                }
                 if (!msg.attachmentUri.isNullOrBlank()) {
                     // Resolve content:// URI to a file path Node.js can read
                     val resolvedPath = resolveContentUriToTempPath(msg.attachmentUri)
@@ -343,10 +384,18 @@ class NodeBridge @Inject constructor(
     }
 
     /**
-     * Called when the TCP socket unexpectedly closes (EOF or read error).
-     * This proves the Node process crashed or the socket died, so we should abort all pending bridge calls immediately.
+     * Called when a TCP reader loop ends (EOF or read error).
+     *
+     * Guarded by generation: a reader from a retired channel (its service
+     * instance was stopped and a new dispatch opened a fresh channel — Node
+     * then destroyed the old socket) must NOT touch shared state, or it
+     * poisons an in-flight dispatch on the live channel with a bogus ERROR.
      */
-    fun handleTcpDisconnection() {
+    fun handleTcpDisconnection(readerGeneration: Int) {
+        if (readerGeneration != channelGeneration) {
+            Log.d(TAG, "Stale TCP reader EOF ignored (gen=$readerGeneration, current=$channelGeneration)")
+            return
+        }
         Log.e(TAG, "Handling TCP Disconnection! Cancelling all pending calls.")
         _connectionState.value = ConnectionState.ERROR
         ringBuffer.record(RingEvent.Disconnected)
@@ -436,6 +485,9 @@ object NodeJsMobile {
     interface Channel {
         fun sendMessage(message: String)
         fun setMessageListener(listener: (String) -> Unit)
+
+        /** Closes the underlying socket — used by resetChannel() to unblock readers promptly. */
+        fun close()
     }
 }
 

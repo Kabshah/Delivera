@@ -215,6 +215,13 @@ class SchedulerService : Service() {
                     }
                 }
                 override fun setMessageListener(listener: (String) -> Unit) {
+                    // Capture the generation at listener-registration time (inside
+                    // initChannel). If this reader later outlives its channel —
+                    // serviceScope.cancel() cannot interrupt a blocking readLine(),
+                    // so the coroutine stays blocked until the socket dies — its
+                    // EOF must be ignored, or it poisons the next dispatch with a
+                    // bogus connection ERROR (see NodeBridge.handleTcpDisconnection).
+                    val readerGeneration = nodeBridge.currentChannelGeneration()
                     // Background thread reading from socket
                     serviceScope.launch(Dispatchers.IO) {
                         try {
@@ -223,12 +230,16 @@ class SchedulerService : Service() {
                                 line?.let { listener(it) }
                             }
                             Log.e(TAG, "Node TCP socket closed (EOF). Node process likely crashed.")
-                            nodeBridge.handleTcpDisconnection()
+                            nodeBridge.handleTcpDisconnection(readerGeneration)
                         } catch(e: Exception) {
                             Log.e(TAG, "TCP read Error: ${e.message}")
-                            nodeBridge.handleTcpDisconnection()
+                            nodeBridge.handleTcpDisconnection(readerGeneration)
                         }
                     }
+                }
+                override fun close() {
+                    // Unblocks the reader's blocking readLine() immediately.
+                    try { socket.close() } catch (_: Exception) { /* best effort */ }
                 }
             }
             nodeBridge.initChannel(channel)
@@ -444,8 +455,16 @@ class SchedulerService : Service() {
          *                classification, ENOENT/zero_byte non-retryable.
          *          v14 = Voice note streaming fix (url: instead of readFileSync),
          *                Day-2 stale socket cleanup in whatsapp.js, rich rose UI.
+         *          v15/v16 = CI patch automation, foregroundServiceType dataSync.
+         *          v17 = readFileSync media sends, minify-engine --patch-only CI gate.
+         *          v18 = MEDIA FIX: Baileys 6.7.24 mediaConn poison guard (Patch 4 in
+         *                minify-engine.mjs — a failed media_conn iq query used to stay
+         *                cached as a rejected promise, failing EVERY media send for the
+         *                socket session while text worked), and whatsapp.js now falls
+         *                back to the bundled Baileys protocol version instead of a
+         *                stale hardcoded triple that WhatsApp servers can reject.
          */
-        private const val NODEJS_ASSETS_VERSION = "17"
+        private const val NODEJS_ASSETS_VERSION = "18"
 
         /**
          * Sentinel files that MUST exist for Node to boot successfully.

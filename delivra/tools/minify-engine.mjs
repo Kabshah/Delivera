@@ -1,20 +1,37 @@
 /**
  * minify-engine.mjs — postinstall patching & size optimization for the Delivra Node engine.
  *
- * 1. Delivra Patches:
+ * 1. Delivra Patches (applied to PRISTINE npm sources, i.e. before minification):
  *    - Baileys TMPDIR patch (messages-media.js, business.js): Android sandboxes
  *      have no writable /tmp; redirects to guaranteed-writable app cacheDir.
  *    - Baileys stream finish flush (messages-media.js): waits for encFileWriteStream
  *      to finish before upload begins (prevents truncated upload errors).
+ *      NOTE: Baileys >= 6.7.24 has this upstream — the patch auto-detects it.
  *    - Baileys Axios buffer upload (messages-media.js): reads encrypted file into
  *      Buffer and sends with explicit Content-Length instead of createReadStream,
  *      preventing chunked upload failures on mobile networks to mmg.whatsapp.net.
+ *    - Baileys mediaConn poison guard (messages-send.js): refreshMediaConn caches
+ *      the fetch promise in the `mediaConn` closure variable. If the media_conn
+ *      iq query EVER fails, the rejected promise stays cached and `await
+ *      mediaConn` throws on every later call — every media upload then fails for
+ *      the rest of the socket session while text keeps working. The guard resets
+ *      the cache on rejection so the next call re-fetches.
  *
- * 2. Minification:
+ * 2. VERIFICATION (always enforced): after patching, every required patch must
+ *    report "applied" or "already present". A patch that matches NEITHER its
+ *    marker NOR its target (i.e. Baileys upgraded and the exact strings drifted)
+ *    makes this script exit non-zero — npm install fails and CI goes red, so a
+ *    silently unpatched (media-breaking) engine can never ship again.
+ *
+ * 3. Minification:
  *    - Terser (-c -m, ESM mode) shrinks large JS files ~50-60%.
+ *    - Files containing a DELIVRA patch marker are NEVER minified, so patch
+ *      markers stay text-verifiable at any time (and dev tree == CI tree for
+ *      those files). Currently that only costs ~20KB (messages-send.js).
  *
  * Runs via "postinstall" so `npm install --production` produces identical,
- * fully-patched output locally and on GitHub Actions CI.
+ * fully-patched output locally and on GitHub Actions CI. CI additionally runs
+ * `node tools/minify-engine.mjs --patch-only` as a second gate.
  */
 
 import { execFileSync } from 'child_process';
@@ -32,118 +49,190 @@ if (!existsSync(baileys)) {
   process.exit(1);
 }
 
-// ── Step 1: Apply Delivra Baileys Patches (ALWAYS RUNS) ───────────────────────
+// ── Patch helpers ─────────────────────────────────────────────────────────────
+// Every patch is { name, file, required, marker, target, replacement } where:
+//   marker     = string that proves the patch (or its upstream equivalent) is in place
+//   target     = exact pristine string to replace (LF; CRLF variant tried too)
+//   replacement= what to replace it with
+// Status: 'applied' (patched now) | 'present' (marker already found) |
+//         'upstream' (upstream code already provides the behaviour) |
+//         'not-found' (NEITHER marker NOR target — hard failure if required)
+
+const CRLF = (s) => s.replace(/\n/g, '\r\n');
+
+function applyPatch(content, patch) {
+  if (content.includes(patch.marker)) return { content, status: 'present' };
+  if (patch.upstreamMarker && content.includes(patch.upstreamMarker)) return { content, status: 'upstream' };
+  if (content.includes(patch.target)) {
+    return { content: content.replace(patch.target, patch.replacement), status: 'applied' };
+  }
+  if (content.includes(CRLF(patch.target))) {
+    return { content: content.replace(CRLF(patch.target), CRLF(patch.replacement)), status: 'applied' };
+  }
+  return { content, status: 'not-found' };
+}
+
+const PATCHES = [
+  // ── 1. TMPDIR: Baileys writes encrypted media to os.tmpdir() → /tmp → ENOENT on Android
+  {
+    name: '1. TMPDIR (messages-media.js)',
+    file: join(baileys, 'lib', 'Utils', 'messages-media.js'),
+    required: true,
+    marker: '__DELIVRA_TMP__',
+    target: 'const getTmpFilesDirectory = () => tmpdir();',
+    replacement:
+      '// DELIVRA PATCH (tmpdir): os.tmpdir() resolves to /tmp on Android sandboxes\n' +
+      '// (ENOENT on write). Prefer the guaranteed-writable dir injected by polyfill.js.\n' +
+      'const getTmpFilesDirectory = () => globalThis.__DELIVRA_TMP__ || tmpdir();',
+  },
+  {
+    name: '1b. TMPDIR (business.js)',
+    file: join(baileys, 'lib', 'Utils', 'business.js'),
+    required: false, // file/pattern may shift across Baileys versions
+    marker: '__DELIVRA_TMP__',
+    target: "const filePath = join(tmpdir(), 'img' + generateMessageIDV2());",
+    replacement:
+      "const filePath = join(globalThis.__DELIVRA_TMP__ || tmpdir(), 'img' + generateMessageIDV2());",
+  },
+  // ── 2. Stream flush before upload (upstream in Baileys >= 6.7.24 — auto-detected)
+  {
+    name: '2. encrypted-stream flush (messages-media.js)',
+    file: join(baileys, 'lib', 'Utils', 'messages-media.js'),
+    required: true,
+    marker: "once(encFileWriteStream, 'finish')",
+    upstreamMarker: "once(encFileWriteStream, 'finish')",
+    target:
+      '        encFileWriteStream.write(mac);\n' +
+      '        encFileWriteStream.end();\n' +
+      '        originalFileStream?.end?.();\n' +
+      '        stream.destroy();',
+    replacement:
+      '        encFileWriteStream.write(mac);\n' +
+      '        encFileWriteStream.end();\n' +
+      '        originalFileStream?.end?.();\n' +
+      '        await Promise.all([\n' +
+      "            once(encFileWriteStream, 'finish'),\n" +
+      "            originalFileStream ? once(originalFileStream, 'finish') : Promise.resolve()\n" +
+      '        ]);\n' +
+      '        stream.destroy();',
+  },
+  // ── 3. Upload as Buffer with explicit Content-Length (mobile-network reliability)
+  {
+    name: '3. axios Buffer upload (messages-media.js)',
+    file: join(baileys, 'lib', 'Utils', 'messages-media.js'),
+    required: true,
+    marker: "'Content-Length': fileBuffer.length",
+    target:
+      '            try {\n' +
+      '                const body = await axios.post(url, createReadStream(filePath), {\n' +
+      '                    ...options,\n' +
+      '                    maxRedirects: 0,\n' +
+      '                    headers: {\n' +
+      '                        ...(options.headers || {}),\n' +
+      "                        'Content-Type': 'application/octet-stream',\n" +
+      '                        Origin: DEFAULT_ORIGIN\n' +
+      '                    },',
+    replacement:
+      '            try {\n' +
+      '                const fileBuffer = await fs.readFile(filePath);\n' +
+      '                const body = await axios.post(url, fileBuffer, {\n' +
+      '                    ...options,\n' +
+      '                    maxRedirects: 0,\n' +
+      '                    headers: {\n' +
+      '                        ...(options.headers || {}),\n' +
+      "                        'Content-Type': 'application/octet-stream',\n" +
+      "                        'Content-Length': fileBuffer.length,\n" +
+      '                        Origin: DEFAULT_ORIGIN\n' +
+      '                    },',
+  },
+  // ── 4. mediaConn poison guard (THE all-media-fails-while-text-works bug)
+  {
+    name: '4. mediaConn poison guard (messages-send.js)',
+    file: join(baileys, 'lib', 'Socket', 'messages-send.js'),
+    required: true,
+    marker: 'mediaConn = undefined;',
+    target:
+      '                return node;\n' +
+      '            })();',
+    replacement:
+      '                return node;\n' +
+      '            })().catch(error => {\n' +
+      '                // DELIVRA PATCH (mediaConn poison guard): a failed media_conn\n' +
+      '                // query used to stay cached as a rejected promise forever, so\n' +
+      '                // EVERY later media upload failed for the rest of the socket\n' +
+      '                // session while text kept working. Reset on failure so the\n' +
+      '                // next call re-fetches.\n' +
+      '                mediaConn = undefined;\n' +
+      '                throw error;\n' +
+      '            });',
+  },
+  // ── 5. Waveform passthrough (playable voice notes: Kotlin supplies the
+  //    waveform; Baileys' own audio-decode path can't decode Opus and isn't
+  //    installed, so it would stomp the provided waveform back to undefined)
+  {
+    name: '5. waveform passthrough (messages.js)',
+    file: join(baileys, 'lib', 'Utils', 'messages.js'),
+    required: true,
+    marker: 'uploadData.waveform = uploadData.waveform ?? await getAudioWaveform',
+    target:
+      '                    uploadData.waveform = await getAudioWaveform(originalFilePath, logger);',
+    replacement:
+      '                    // DELIVRA PATCH (waveform passthrough): Kotlin computes the\n' +
+      '                    // waveform with the platform Opus decoder (see\n' +
+      '                    // VoiceNoteRecorder.computeWaveform) because the Node-side\n' +
+      '                    // audio-decode path cannot decode OGG/Opus. Keep it when\n' +
+      '                    // present instead of overwriting with undefined.\n' +
+      '                    uploadData.waveform = uploadData.waveform ?? await getAudioWaveform(originalFilePath, logger);',
+  },
+];
+
+// ── Step 1: Apply Delivra patches + verify ───────────────────────────────────
 function applyDelivraPatches() {
   console.log('[delivra-patch] Verifying and applying Baileys runtime patches...');
-  const mediaFile = join(baileys, 'lib', 'Utils', 'messages-media.js');
-  const businessFile = join(baileys, 'lib', 'Utils', 'business.js');
+  const fileCache = new Map(); // path -> content (patches 1/2/3 share messages-media.js)
 
-  if (existsSync(mediaFile)) {
-    let content = readFileSync(mediaFile, 'utf-8');
-    let modified = false;
+  const statuses = [];
+  for (const patch of PATCHES) {
+    if (!existsSync(patch.file)) {
+      statuses.push({ patch, status: 'not-found', missingFile: true });
+      continue;
+    }
+    let content = fileCache.has(patch.file)
+      ? fileCache.get(patch.file)
+      : readFileSync(patch.file, 'utf-8');
+    const result = applyPatch(content, patch);
+    if (result.status === 'applied') {
+      writeFileSync(patch.file, result.content, 'utf-8');
+      console.log(`[delivra-patch] -> Patched ${patch.name}`);
+    } else if (result.status === 'present') {
+      console.log(`[delivra-patch] -> ${patch.name}: already patched`);
+    } else if (result.status === 'upstream') {
+      console.log(`[delivra-patch] -> ${patch.name}: behaviour present upstream (no patch needed)`);
+    }
+    fileCache.set(patch.file, result.content);
+    statuses.push({ patch, status: result.status });
+  }
 
-    // 1. DELIVRA TMPDIR patch
-    if (!content.includes('__DELIVRA_TMP__')) {
-      content = content.replace(
-        'const getTmpFilesDirectory = () => tmpdir();',
-        'const getTmpFilesDirectory = () => globalThis.__DELIVRA_TMP__ || tmpdir();'
+  // ── Hard verification: never ship a silently unpatched engine ──────────────
+  const broken = statuses.filter(
+    (s) => s.patch.required && (s.status === 'not-found' || s.missingFile)
+  );
+  if (broken.length > 0) {
+    console.error('');
+    console.error('[delivra-patch] ═══ PATCH VERIFICATION FAILED ═══');
+    for (const b of broken) {
+      console.error(
+        `[delivra-patch] REQUIRED patch missing: ${b.patch.name} ` +
+          `(${b.missingFile ? 'file not found' : 'neither marker nor target matched'})`
       );
-      modified = true;
-      console.log('[delivra-patch] -> Patched messages-media.js getTmpFilesDirectory');
     }
-
-    // 2. Stream flush before return in encryptedStream (prevents reading half-written enc file)
-    if (!content.includes('await Promise.all([once(encFileWriteStream')) {
-      const targetStreamEnd = `        encFileWriteStream.write(mac);
-        encFileWriteStream.end();
-        originalFileStream?.end?.();
-        stream.destroy();`;
-
-      const patchedStreamEnd = `        encFileWriteStream.write(mac);
-        encFileWriteStream.end();
-        originalFileStream?.end?.();
-        await Promise.all([
-            once(encFileWriteStream, 'finish'),
-            originalFileStream ? once(originalFileStream, 'finish') : Promise.resolve()
-        ]);
-        stream.destroy();`;
-
-      if (content.includes(targetStreamEnd)) {
-        content = content.replace(targetStreamEnd, patchedStreamEnd);
-        modified = true;
-        console.log('[delivra-patch] -> Patched messages-media.js stream flush (LF)');
-      } else {
-        const targetCRLF = targetStreamEnd.replace(/\n/g, '\r\n');
-        const patchedCRLF = patchedStreamEnd.replace(/\n/g, '\r\n');
-        if (content.includes(targetCRLF)) {
-          content = content.replace(targetCRLF, patchedCRLF);
-          modified = true;
-          console.log('[delivra-patch] -> Patched messages-media.js stream flush (CRLF)');
-        }
-      }
-    }
-
-    // 3. Axios upload as Buffer with exact Content-Length instead of createReadStream
-    if (content.includes('createReadStream(filePath)')) {
-      const targetAxios = `            try {
-                const body = await axios.post(url, createReadStream(filePath), {
-                    ...options,
-                    maxRedirects: 0,
-                    headers: {
-                        ...(options.headers || {}),
-                        'Content-Type': 'application/octet-stream',
-                        Origin: DEFAULT_ORIGIN
-                    },`;
-
-      const patchedAxios = `            try {
-                const fileBuffer = await fs.readFile(filePath);
-                const body = await axios.post(url, fileBuffer, {
-                    ...options,
-                    maxRedirects: 0,
-                    headers: {
-                        ...(options.headers || {}),
-                        'Content-Type': 'application/octet-stream',
-                        'Content-Length': fileBuffer.length,
-                        Origin: DEFAULT_ORIGIN
-                    },`;
-
-      if (content.includes(targetAxios)) {
-        content = content.replace(targetAxios, patchedAxios);
-        modified = true;
-        console.log('[delivra-patch] -> Patched messages-media.js axios upload as Buffer (LF)');
-      } else {
-        const targetCRLF = targetAxios.replace(/\n/g, '\r\n');
-        const patchedCRLF = patchedAxios.replace(/\n/g, '\r\n');
-        if (content.includes(targetCRLF)) {
-          content = content.replace(targetCRLF, patchedCRLF);
-          modified = true;
-          console.log('[delivra-patch] -> Patched messages-media.js axios upload as Buffer (CRLF)');
-        }
-      }
-    }
-
-    if (modified) {
-      writeFileSync(mediaFile, content, 'utf-8');
-      console.log('[delivra-patch] Saved patched messages-media.js');
-    } else {
-      console.log('[delivra-patch] messages-media.js already fully patched');
-    }
+    console.error('[delivra-patch] The installed Baileys version likely changed its source.');
+    console.error('[delivra-patch] Update the targets above for the new version — shipping');
+    console.error('[delivra-patch] an unpatched engine BREAKS ALL MEDIA SENDS on device.');
+    console.error('');
+    process.exit(1);
   }
-
-  if (existsSync(businessFile)) {
-    let content = readFileSync(businessFile, 'utf-8');
-    if (!content.includes('__DELIVRA_TMP__')) {
-      const target = "const filePath = join(tmpdir(), 'img' + generateMessageIDV2());";
-      const replacement = "const filePath = join(globalThis.__DELIVRA_TMP__ || tmpdir(), 'img' + generateMessageIDV2());";
-      if (content.includes(target)) {
-        content = content.replace(target, replacement);
-        writeFileSync(businessFile, content, 'utf-8');
-        console.log('[delivra-patch] Saved patched business.js');
-      }
-    } else {
-      console.log('[delivra-patch] business.js already fully patched');
-    }
-  }
+  console.log('[delivra-patch] All required patches verified ✓');
 }
 
 applyDelivraPatches();
@@ -173,6 +262,14 @@ let before = 0, after = 0;
 const targets = collectJs(baileys, []);
 for (const file of targets) {
   const sizeBefore = statSync(file).size;
+  // Never minify files carrying Delivra patches — their markers must remain
+  // text-verifiable, and terser would rename the patched closure variables.
+  const content = readFileSync(file, 'utf-8');
+  if (content.includes('DELIVRA PATCH')) {
+    console.log(`[minify-engine] skipped ${file.replace(baileys + '/', '')}: carries DELIVRA patch`);
+    after += sizeBefore; before += sizeBefore;
+    continue;
+  }
   const tmp = file + '.min.tmp';
   try {
     execFileSync(process.execPath, [terserBin, file, '--compress', '--mangle', '--module', '--output', tmp], { stdio: 'pipe' });

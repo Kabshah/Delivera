@@ -30,6 +30,8 @@ import { useAtomicFileAuthState, AuthStateCorruptError } from './atomic-auth.js'
 
 import { Boom } from '@hapi/boom';
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import pino from 'pino';
 import https from 'https';
 
@@ -39,7 +41,28 @@ let saveCreds = null;
 let connectionCallback = null;
 let sessionDir = './session';
 
-let currentVersion = [2, 3000, 1015901307];
+// Fallback WA protocol version — read from the BUNDLED Baileys package
+// (lib/Defaults/baileys-version.json), not a hardcoded stale triple.
+// History: this used to be hardcoded [2, 3000, 1015901307] (a ~mid-2024 version).
+// On-device, fetchLatestBaileysVersion() regularly loses its 5s race during
+// cold dispatch (screen-off, Doze, slow network), so sessions fell back to
+// that ancient version — WhatsApp servers can then reject media-related
+// queries like the media_conn iq, killing every media send while text kept
+// working. Reading the installed package's own version keeps the fallback
+// correct whenever Baileys is upgraded (see tools/test-media-pipeline.mjs).
+const engineDir = path.dirname(fileURLToPath(import.meta.url));
+let currentVersion = [2, 3000, 1015901307]; // last-resort only — normally overridden below
+try {
+  const bundled = JSON.parse(
+    fs.readFileSync(path.join(engineDir, 'node_modules', '@whiskeysockets', 'baileys', 'lib', 'Defaults', 'baileys-version.json'), 'utf-8')
+  );
+  if (Array.isArray(bundled?.version) && bundled.version.length === 3) {
+    currentVersion = bundled.version;
+  }
+  console.log('[Delivra Node] Bundled Baileys version:', currentVersion);
+} catch (e) {
+  console.warn('[Delivra Node] Could not read bundled baileys-version.json, using legacy fallback:', e.message);
+}
 let reconnectAttempt = 0;
 const MAX_BACKOFF_MS = 30000;
 
@@ -63,6 +86,12 @@ async function connectToWhatsApp(sesDir, onEvent) {
     console.log('[Delivra Node] connectToWhatsApp called while already connecting/connected — ignored');
     // Re-wire the callback so the new caller gets state events too.
     connectionCallback = onEvent;
+    // DELIVRA FIX (live logcat 2026-11-06): a dispatch that arrives while the
+    // pairing socket is still open used to get NO state event at all — Kotlin's
+    // waitForConnected() hung for its full 60s timeout and the send failed
+    // ("Job was cancelled") even though Baileys was already connected. Re-emit
+    // the live state so the freshly attached listener learns immediately.
+    connectionCallback?.({ state: sock ? 'connected' : 'connecting' });
     return;
   }
   isConnectingOrConnected = true;

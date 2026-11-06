@@ -125,10 +125,11 @@ jobs:
             | `Delivra-armeabi-v7a.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
 
             ### What's new in ${{ github.ref_name }}
-            - **Voice Note, Image & Document Sending Fix**: Voice notes, images (PNG/JPEG), PDFs, and Word/DOCX documents now reliably send. Switched media reading back to `readFileSync` (Buffer) instead of unreliable file-path stream URLs on nodejs-mobile.
-            - **Missing Attachment Safeguard**: Added explicit failure reporting if an attachment cannot be resolved instead of silently falling back to a text-only send.
-            - **Multi-day Stability (Day 1 - Day 100)**: All session and socket cleanup safeguards preserved — no memory bloat or Day 2/25 re-launch crashes.
-            - **Assets Version 15**: Triggers automatic clean re-extraction of updated Node.js bridge scripts on launch.
+            - **Media Send Fix (voice notes, images, PDFs, documents)**: fixed the engine bug where one failed `media_conn` query poisoned the cached upload session — after that, every media send failed while text messages kept working. Media now recovers automatically on the next attempt.
+            - **Protocol version fix**: the engine now falls back to the protocol version bundled with its Baileys library instead of a stale hardcoded one that WhatsApp servers could reject.
+            - **Verified engine patches**: all runtime patches are now verified at build time — a broken patch fails the build instead of shipping failed media sends.
+            - **Multi-day Stability (Day 1 - Day 100)**: all session and socket cleanup safeguards preserved — no memory bloat or Day 2/25 re-launch crashes.
+            - **Assets Version 18**: triggers automatic clean re-extraction of the patched engine on first launch after update.
 
             ### Installation
             ```bash
