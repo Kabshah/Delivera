@@ -125,11 +125,11 @@ jobs:
             | `Delivra-armeabi-v7a.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
 
             ### What's new in ${{ github.ref_name }}
-            - **Media Send Fix (voice notes, images, PDFs, documents)**: fixed the engine bug where one failed `media_conn` query poisoned the cached upload session — after that, every media send failed while text messages kept working. Media now recovers automatically on the next attempt.
-            - **Protocol version fix**: the engine now falls back to the protocol version bundled with its Baileys library instead of a stale hardcoded one that WhatsApp servers could reject.
-            - **Verified engine patches**: all runtime patches are now verified at build time — a broken patch fails the build instead of shipping failed media sends.
+            - **Voice Note Recording Fix**: recordings no longer stop after 0.3 seconds — a units bug in the recorder's 5-minute cap (microseconds vs milliseconds) killed every take at exactly 300 ms. Recordings of any length now save and schedule correctly.
+            - **Media Send Fix (carried from v1.6.1)**: the engine no longer lets one failed `media_conn` query poison every later media send; protocol version falls back to the bundled Baileys version.
+            - **Verified engine patches**: all runtime patches are verified at build time — a broken patch fails the build instead of shipping failed media sends.
             - **Multi-day Stability (Day 1 - Day 100)**: all session and socket cleanup safeguards preserved — no memory bloat or Day 2/25 re-launch crashes.
-            - **Assets Version 18**: triggers automatic clean re-extraction of the patched engine on first launch after update.
+            - **Assets Version 18**: unchanged from v1.6.1 — no engine re-extraction needed on update.
 
             ### Installation
             ```bash

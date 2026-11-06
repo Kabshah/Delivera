@@ -117,7 +117,13 @@ internal class OpusRecorder(private val outputFile: File) {
 
             try {
                 audioRecord.startRecording()
-                while (!done.get() && framesIn * FRAME_US < VoiceNoteRecorder.MAX_DURATION_MS) {
+                // Cap check in MICROSECONDS: framesIn*FRAME_US counts µs while
+                // MAX_DURATION_MS is milliseconds — multiply it out or the loop
+                // dies at frame 15 (300,000µs == 300,000), i.e. every recording
+                // silently ended at exactly 300ms (live-caught 2026-11-07: logcat
+                // showed "recording thread done: in=15 out=17 (340ms)" for a
+                // 40-second take).
+                while (!done.get() && framesIn * FRAME_US < VoiceNoteRecorder.MAX_DURATION_MS * 1000L) {
                     // ── 1. mic read (never while holding a codec buffer) ──────
                     if (!inputEos) {
                         if (framePending) {
