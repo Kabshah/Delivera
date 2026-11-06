@@ -50,20 +50,6 @@ No servers. No accounts. No cloud.
 
 ---
 
-## 🔧 What's new in v1.6.0 — Voice Note Fix, Day 2 Crash Fix & Rich Rose UI
-
-**Key Improvements in v1.6.0:**
-- **Voice Note & File Sending Fix**: Voice notes, images, and document attachments (PDF, Word, etc.) now reliably deliver. Switched voice notes from in-memory Buffer loading to file-path streaming so Baileys can stream directly through its encrypt→upload pipeline.
-- **Day 2 App Crash Fix**: Fixed crash when opening the app on Day 2. The Node.js process outlives the Android Service; Day 2 reconnects now properly clean up stale Baileys WebSocket state before creating a fresh connection.
-- **Rich Rose UI Palette**: Deepened the entire color palette from a washed-out light pink to a rich, warm dusty rose. Surfaces are now visibly rose-tinted, buttons use a premium gradient, and text has better contrast.
-- **Enhanced Media Diagnostics**: Added per-step logging for voice note, image, and document sends to help diagnose failures.
-- **Assets Version 14**: Automatically triggers fresh re-extraction of updated Node.js bridge scripts on device upgrade.
-
-**Previous fixes (still included):** Media TLS agent for uploads, extended bridge timeout, storage bloat cleanup, sentinel integrity check, dynamic port selection, atomic session writes, TCP server error recovery.
-
-
----
-
 ## What Delivra does
 
 | | |
