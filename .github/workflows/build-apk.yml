@@ -125,11 +125,12 @@ jobs:
             | `Delivra-armeabi-v7a.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
 
             ### What's new in ${{ github.ref_name }}
-            - **Voice Note Recording Fix**: recordings no longer stop after 0.3 seconds — a units bug in the recorder's 5-minute cap (microseconds vs milliseconds) killed every take at exactly 300 ms. Recordings of any length now save and schedule correctly.
-            - **Media Send Fix (carried from v1.6.1)**: the engine no longer lets one failed `media_conn` query poison every later media send; protocol version falls back to the bundled Baileys version.
+            - **Voice Notes — Complete Pipeline Fix**: recordings of any length now save and schedule (a units bug used to cut every take at 0.3 s), and delivered voice notes now PLAY on WhatsApp — the recorder no longer lets Samsung's encoder leak a proprietary header blob ("SAOPUSHDR") or empty packets into the Ogg file, granule positions follow each packet's real duration, and WhatsApp-ready seconds + waveform are attached automatically.
+            - **Dispatch Self-Healing**: if the WhatsApp socket dies mid-session, the next dispatch reconnects on its own instead of stranding messages in "Sending" until an app restart.
+            - **Media Send Fix (carried from v1.6.1)**: one failed `media_conn` query can no longer poison every later media send; protocol version falls back to the bundled Baileys version.
             - **Verified engine patches**: all runtime patches are verified at build time — a broken patch fails the build instead of shipping failed media sends.
             - **Multi-day Stability (Day 1 - Day 100)**: all session and socket cleanup safeguards preserved — no memory bloat or Day 2/25 re-launch crashes.
-            - **Assets Version 18**: unchanged from v1.6.1 — no engine re-extraction needed on update.
+            - **Assets Version 18**: unchanged — no engine re-extraction needed on update.
 
             ### Installation
             ```bash
