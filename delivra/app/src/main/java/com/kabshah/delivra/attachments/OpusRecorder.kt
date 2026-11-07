@@ -36,6 +36,7 @@ internal class OpusRecorder(private val outputFile: File) {
         private const val FRAME_SAMPLES = 960          // 20 ms @ 48 kHz — Opus encoder frame
         private const val FRAME_US = 20_000L
         private const val BIT_RATE = 32_000
+        private val OPUS_HEAD_MAGIC = "OpusHead".toByteArray(Charsets.US_ASCII)
     }
 
     private val running = AtomicBoolean(false)
@@ -84,15 +85,23 @@ internal class OpusRecorder(private val outputFile: File) {
             var framePending = false
             val info = MediaCodec.BufferInfo()
             val pcm = ShortArray(FRAME_SAMPLES)
+            var csdBytes: ByteArray? = null
+
+            /** Writes the BOS + OpusTags pages exactly once, with a normalized OpusHead. */
+            fun writeHeaderOnce() {
+                if (headWritten) return
+                muxer.writeHeader(normalizeOpusHead(csdBytes))
+                muxer.writeTags()
+                headWritten = true
+            }
 
             fun handleFormatChanged() {
                 val csd = encoder.outputFormat.getByteBuffer("csd-0")
                 if (csd != null && !headWritten) {
-                    val head = ByteArray(csd.remaining())
-                    csd.get(head)
-                    muxer.writeHeader(head)   // encoder's own OpusHead (19 B, carries pre-skip)
-                    muxer.writeTags()
-                    headWritten = true
+                    val raw = ByteArray(csd.remaining())
+                    csd.get(raw)
+                    csdBytes = raw
+                    writeHeaderOnce()
                 }
             }
 
@@ -112,19 +121,26 @@ internal class OpusRecorder(private val outputFile: File) {
                 //      buffer (every take logs out == in + 1..2); a 0-byte Opus
                 //      packet is illegal in Ogg (RFC 7845).
                 val isCodecConfig = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
-                if (info.size > 0 && !isCodecConfig) {
+                if (isCodecConfig) {
+                    // Capture the CSD bytes for header normalization, but never
+                    // mux them as audio (see note above).
+                    if (csdBytes == null && info.size > 0) {
+                        val raw = ByteArray(info.size)
+                        encoder.getOutputBuffer(outIdx)!!.get(raw)
+                        csdBytes = raw
+                    }
+                    encoder.releaseOutputBuffer(outIdx, false)
+                    return eos
+                }
+                if (info.size > 0) {
                     val packet = ByteArray(info.size)
                     encoder.getOutputBuffer(outIdx)!!.get(packet)
-                    if (!headWritten) {
-                        // Defensive: csd should always arrive first; synthesize a
-                        // minimal 19-byte OpusHead if the OEM codec skipped it.
-                        muxer.writeHeader(defaultOpusHead())
-                        muxer.writeTags()
-                        headWritten = true
-                    }
+                    // Defensive: csd should always arrive first (format change or
+                    // flagged buffer); synthesize a spec-default OpusHead if the
+                    // OEM codec somehow skipped both.
+                    writeHeaderOnce()
                     muxer.writePacket(packet)
-                    framesOut++
-                    durationMs.set(framesOut * FRAME_US / 1000)
+                    durationMs.set(muxer.totalSamples * 1000 / SAMPLE_RATE)
                 }
                 encoder.releaseOutputBuffer(outIdx, false)
                 return eos
@@ -241,18 +257,55 @@ internal class OpusRecorder(private val outputFile: File) {
         return durationMs.get()
     }
 
-    private fun defaultOpusHead(): ByteArray = ByteArray(19).apply {
-        "OpusHead".toByteArray(Charsets.US_ASCII).copyInto(this)
-        this[8] = 1   // version
-        this[9] = 1   // channels
-        // bytes 10-11 pre-skip: 0 (encoder csd-0 is expected to arrive; this is a fallback)
-        // bytes 12-15 input sample rate
-        val rate = SAMPLE_RATE
-        this[12] = (rate and 0xFF).toByte()
-        this[13] = ((rate shr 8) and 0xFF).toByte()
-        this[14] = ((rate shr 16) and 0xFF).toByte()
-        this[15] = ((rate shr 24) and 0xFF).toByte()
-        // output gain 0, mapping family 0 — already zero
+    /**
+     * Returns a standard 19-byte RFC 7845 OpusHead from the encoder's raw csd-0.
+     *
+     * Why this exists: Samsung's c2.android.opus.encoder wraps its OpusHead in a
+     * proprietary "SAOPUSHDR" blob (9-byte magic + size byte + padding + the real
+     * 19-byte header) instead of a plain ID header — live oggdiag 2026-11-07:
+     * page#0 body=83 starting `53 41 4f 50 …`. Muxing that blob as the stream's
+     * first packet makes every strict parser fail: Android's OggExtractor
+     * memcmp's "OpusHead" → MALFORMED → "found no audio track" (so Kotlin
+     * silently sent NO seconds/waveform), and WhatsApp's player rejects the PTT
+     * ("something is wrong with audio file"). Extract the embedded header; if
+     * the codec's csd is absent/foreign, synthesize a spec-default one.
+     */
+    private fun normalizeOpusHead(csd: ByteArray?): ByteArray {
+        if (csd != null && csd.size >= 19) {
+            val idx = indexOf(csd, OPUS_HEAD_MAGIC)
+            if (idx >= 0 && idx + 19 <= csd.size) {
+                val head = csd.copyOfRange(idx, idx + 19)
+                val version = head[8].toInt() and 0xFF
+                val channels = head[9].toInt() and 0xFF
+                if (version <= 1 && channels in 1..8) return head
+            }
+        }
+        // Fallback: spec-default header. libopus-family encoders (incl. c2)
+        // use a 312-sample (6.5 ms @ 48 kHz) lookahead for 20 ms frames.
+        return ByteArray(19).apply {
+            "OpusHead".toByteArray(Charsets.US_ASCII).copyInto(this)
+            this[8] = 1   // version
+            this[9] = 1   // channels
+            this[10] = 0x38   // pre-skip = 312 (LE16)
+            this[11] = 0x01
+            val rate = SAMPLE_RATE
+            this[12] = (rate and 0xFF).toByte()
+            this[13] = ((rate shr 8) and 0xFF).toByte()
+            this[14] = ((rate shr 16) and 0xFF).toByte()
+            this[15] = ((rate shr 24) and 0xFF).toByte()
+            // output gain 0, mapping family 0 — already zero
+        }
+    }
+
+    private fun indexOf(haystack: ByteArray, needle: ByteArray): Int {
+        if (needle.isEmpty() || haystack.size < needle.size) return -1
+        outer@ for (i in 0..haystack.size - needle.size) {
+            for (j in needle.indices) {
+                if (haystack[i + j] != needle[j]) continue@outer
+            }
+            return i
+        }
+        return -1
     }
 }
 
@@ -282,12 +335,45 @@ internal class OggOpusMuxer(private val out: OutputStream, private val streamSer
         writePage(headerType = 0, granule = 0L, packets = listOf(payload))
     }
 
+    /** Total decoded samples written so far (granule accounting, RFC 7845 §4). */
+    var totalSamples = 0L
+        private set
+
     fun writePacket(packet: ByteArray) {
         check(!finished) { "Muxer already finished" }
         pending.add(packet)
         pendingBytes += packet.size
-        granule += FRAME_SAMPLES   // 20 ms per packet @ 48 kHz
+        // Advance the granule by the packet's ACTUAL sample count, decoded from
+        // its TOC byte — the encoder emits variable-duration frames (10/20/40 ms,
+        // sometimes 2 frames per packet), so a fixed 960/packet drifts the
+        // timeline and players compute a wrong duration.
+        totalSamples += opusPacketSamples(packet)
+        granule = totalSamples
         if (pendingBytes >= PAGE_FLUSH_THRESHOLD) flush(eos = false)
+    }
+
+    /**
+     * Samples a single Opus packet decodes to (RFC 6716 §3.1): the TOC byte's
+     * config field picks the frame duration, the code field the frame count.
+     */
+    private fun opusPacketSamples(packet: ByteArray): Long {
+        if (packet.isEmpty()) return 0L
+        val toc = packet[0].toInt() and 0xFF
+        val config = (toc shr 3) and 0x1F
+        val code = toc and 0x03
+        // Samples per frame @ 48 kHz: SILK 10/20/40/60 ms, hybrid 10/20 ms,
+        // CELT 2.5/5/10/20 ms.
+        val frameSamples = when (config) {
+            in 0..11 -> longArrayOf(480L, 960L, 1920L, 2880L)[config and 3]
+            in 12..15 -> if (config and 1 == 0) 480L else 960L
+            else -> longArrayOf(120L, 240L, 480L, 960L)[config and 3]
+        }
+        val frames = when (code) {
+            0 -> 1L
+            1, 2 -> 2L
+            else -> if (packet.size >= 2) (packet[1].toInt() and 0x3F).toLong() else 0L
+        }
+        return frameSamples * frames
     }
 
     fun finish() {
@@ -349,7 +435,6 @@ internal class OggOpusMuxer(private val out: OutputStream, private val streamSer
     }
 
     private companion object {
-        const val FRAME_SAMPLES = 960L
         const val PAGE_FLUSH_THRESHOLD = 16 * 1024
 
         /** Ogg CRC-32: polynomial 0x04c11db7, init 0, MSB-first, no final XOR (Ogg spec). */
