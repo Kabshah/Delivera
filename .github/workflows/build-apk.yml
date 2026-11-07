@@ -129,7 +129,7 @@ jobs:
             - **Dispatch Self-Healing**: if the WhatsApp socket dies mid-session, the next dispatch reconnects on its own instead of stranding messages in "Sending" until an app restart.
             - **Media Send Fix (carried from v1.6.1)**: one failed `media_conn` query can no longer poison every later media send; protocol version falls back to the bundled Baileys version.
             - **Verified engine patches**: all runtime patches are verified at build time — a broken patch fails the build instead of shipping failed media sends.
-            - **Multi-day Stability (Day 1 - Day 100)**: all session and socket cleanup safeguards preserved — no memory bloat or Day 2/25 re-launch crashes.
+            - **Multi-day Stability (Day 1 - Day 100)**: all session and socket cleanup safeguards preserved — no memory bloat or Day 2/25 re-launch crashes. Engine diagnostics (ogg page dump on each voice send) are kept in for field debugging via `adb logcat -s NodeJS`.
             - **Assets Version 18**: unchanged — no engine re-extraction needed on update.
 
             ### Installation
