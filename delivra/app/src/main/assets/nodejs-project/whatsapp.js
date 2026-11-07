@@ -82,7 +82,16 @@ let isConnectingOrConnected = false;
 async function connectToWhatsApp(sesDir, onEvent) {
   // Bug 8 guard: if already connecting/connected, don't create a second socket.
   // The only legitimate case for a fresh connect is after an explicit disconnect.
+  // DELIVRA FIX (2026-11-07): the flag alone is not proof of a live socket —
+  // a crashed WS (live case: the 428 'Connection Closed' unhandledRejection
+  // right after a dispatch) leaves isConnectingOrConnected stuck true, and
+  // every later connect() was silently ignored → all dispatches failed
+  // not_connected until the whole app was force-stopped. Only honour the
+  // guard when the underlying WebSocket is genuinely OPEN.
   if (isConnectingOrConnected) {
+    // sock.ws is Baileys' WebSocketClient; .isOpen is its own OPEN check.
+    const wsOpen = sock?.ws?.isOpen === true;
+    if (wsOpen) { // genuinely connected/connecting
     console.log('[Delivra Node] connectToWhatsApp called while already connecting/connected — ignored');
     // Re-wire the callback so the new caller gets state events too.
     connectionCallback = onEvent;
@@ -92,7 +101,10 @@ async function connectToWhatsApp(sesDir, onEvent) {
     // ("Job was cancelled") even though Baileys was already connected. Re-emit
     // the live state so the freshly attached listener learns immediately.
     connectionCallback?.({ state: sock ? 'connected' : 'connecting' });
-    return;
+      return;
+    }
+    console.log('[Delivra Node] connectToWhatsApp: flag set but socket is dead (isOpen=' + sock?.ws?.isOpen + ') — reconnecting fresh');
+    isConnectingOrConnected = false;
   }
   isConnectingOrConnected = true;
 
