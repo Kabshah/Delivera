@@ -99,14 +99,20 @@ internal class OpusRecorder(private val outputFile: File) {
             /** Writes one encoded packet. Returns true only when the packet carries EOS. */
             fun handlePacket(outIdx: Int): Boolean {
                 val eos = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
-                // Samsung's c2.android.opus.encoder emits 2 extra ZERO-SIZE output
-                // buffers per stream (one at EOS, one trailing — live-verified:
-                // every take logs out == in + 2). A 0-byte Opus packet is illegal
-                // in an Ogg stream (RFC 7845): Android's own MediaExtractor then
-                // finds NO audio track, so Kotlin can't derive seconds/waveform
-                // and WhatsApp rejects the PTT ("something is wrong with audio
-                // file", 2026-11-07). Skip them — never enter the muxer.
-                if (info.size > 0) {
+                // Two degenerate output buffers must never enter the muxer:
+                //   1. CSD (BUFFER_FLAG_CODEC_CONFIG) — the encoder re-emits its
+                //      OpusHead as a flagged buffer; written as an "audio packet"
+                //      it lands a SECOND OpusHead inside the stream. Android's
+                //      OggExtractor init then trips ("found no audio track",
+                //      computeWaveform null → no seconds/waveform sent) and
+                //      WhatsApp's player rejects the PTT outright ("something is
+                //      wrong with audio file", 2026-11-07). The header already
+                //      comes from handleFormatChanged()'s csd-0 — skip this copy.
+                //   2. size == 0 — Samsung's c2 encoder emits an empty EOS-flagged
+                //      buffer (every take logs out == in + 1..2); a 0-byte Opus
+                //      packet is illegal in Ogg (RFC 7845).
+                val isCodecConfig = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
+                if (info.size > 0 && !isCodecConfig) {
                     val packet = ByteArray(info.size)
                     encoder.getOutputBuffer(outIdx)!!.get(packet)
                     if (!headWritten) {

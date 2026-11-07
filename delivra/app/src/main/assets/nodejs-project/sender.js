@@ -67,6 +67,32 @@ async function sendMessage(payload) {
       // truncated reads — Buffers are the reliable path on this runtime.
       // Voice notes are max ~480KB (5 min Opus), so heap pressure is negligible.
       console.log('[Delivra sender] Voice note size:', vnSize, 'bytes — sending as PTT');
+      // ── TEMPORARY OGG DIAGNOSTIC (remove after container sign-off) ──────
+      // Dumps the recorded file's Ogg page structure to logcat so muxer bugs
+      // can be diffed against a known-good file without pulling app-private
+      // bytes off a non-debuggable build.
+      try {
+        const vnBuf = fs.readFileSync(voiceNotePath);
+        let off = 0, pageNo = 0;
+        while (off + 27 <= vnBuf.length && pageNo < 6) {
+          if (vnBuf.readUInt32BE(off) !== 0x4f676753) { console.log('[Delivra oggdiag] bad sync at', off); break; }
+          const hType = vnBuf[off + 5];
+          const granule = vnBuf.readBigUInt64LE(off + 6);
+          const nSegs = vnBuf[off + 26];
+          const segs = [];
+          let body = 0;
+          for (let i = 0; i < nSegs; i++) { segs.push(vnBuf[off + 27 + i]); body += vnBuf[off + 27 + i]; }
+          console.log(`[Delivra oggdiag] page#${pageNo} off=${off} type=${hType} granule=${granule} segs=${nSegs} body=${body} laces=${segs.slice(0, 8).join(',')}${nSegs > 8 ? '…' : ''}`);
+          if (pageNo === 0) console.log('[Delivra oggdiag] first-packet head:', vnBuf.subarray(off + 27, off + 27 + 19).toString('hex'));
+          if (pageNo === 2 && nSegs > 0) console.log('[Delivra oggdiag] first-audio TOC bytes:', vnBuf.subarray(off + 27, off + 27 + Math.min(6, body)).toString('hex'));
+          off += 27 + nSegs + body;
+          pageNo++;
+        }
+        console.log(`[Delivra oggdiag] total pages>=${pageNo}, fileLen=${vnBuf.length}`);
+      } catch (e) {
+        console.log('[Delivra oggdiag] failed:', e.message);
+      }
+      // ── END DIAGNOSTIC ───────────────────────────────────────────────────
       // seconds + waveform come from Kotlin (platform MediaCodec decode — see
       // VoiceNoteRecorder.computeWaveform). Without a waveform WhatsApp clients
       // refuse to play the PTT bubble; Baileys' own audio-decode path can't
