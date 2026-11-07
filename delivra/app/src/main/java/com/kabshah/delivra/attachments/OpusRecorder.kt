@@ -98,19 +98,28 @@ internal class OpusRecorder(private val outputFile: File) {
 
             /** Writes one encoded packet. Returns true only when the packet carries EOS. */
             fun handlePacket(outIdx: Int): Boolean {
-                val packet = ByteArray(info.size)
-                encoder.getOutputBuffer(outIdx)!!.get(packet)
-                if (!headWritten) {
-                    // Defensive: csd should always arrive first; synthesize a
-                    // minimal 19-byte OpusHead if the OEM codec skipped it.
-                    muxer.writeHeader(defaultOpusHead())
-                    muxer.writeTags()
-                    headWritten = true
-                }
-                muxer.writePacket(packet)
-                framesOut++
-                durationMs.set(framesOut * FRAME_US / 1000)
                 val eos = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
+                // Samsung's c2.android.opus.encoder emits 2 extra ZERO-SIZE output
+                // buffers per stream (one at EOS, one trailing — live-verified:
+                // every take logs out == in + 2). A 0-byte Opus packet is illegal
+                // in an Ogg stream (RFC 7845): Android's own MediaExtractor then
+                // finds NO audio track, so Kotlin can't derive seconds/waveform
+                // and WhatsApp rejects the PTT ("something is wrong with audio
+                // file", 2026-11-07). Skip them — never enter the muxer.
+                if (info.size > 0) {
+                    val packet = ByteArray(info.size)
+                    encoder.getOutputBuffer(outIdx)!!.get(packet)
+                    if (!headWritten) {
+                        // Defensive: csd should always arrive first; synthesize a
+                        // minimal 19-byte OpusHead if the OEM codec skipped it.
+                        muxer.writeHeader(defaultOpusHead())
+                        muxer.writeTags()
+                        headWritten = true
+                    }
+                    muxer.writePacket(packet)
+                    framesOut++
+                    durationMs.set(framesOut * FRAME_US / 1000)
+                }
                 encoder.releaseOutputBuffer(outIdx, false)
                 return eos
             }

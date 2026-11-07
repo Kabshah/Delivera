@@ -64,14 +64,20 @@ class VoiceNoteRecorder(private val context: Context) {
                         break
                     }
                 }
-                if (trackIndex < 0 || format == null) return null
+                if (trackIndex < 0 || format == null) {
+                    Log.w(TAG, "Waveform: MediaExtractor found no audio track in $path (container unparseable?)")
+                    return null
+                }
                 extractor.selectTrack(trackIndex)
                 val mime = format!!.getString(android.media.MediaFormat.KEY_MIME)!!
                 val sampleRate = format.getInteger(android.media.MediaFormat.KEY_SAMPLE_RATE)
                 val durationUs = if (format.containsKey(android.media.MediaFormat.KEY_DURATION)) {
                     format.getLong(android.media.MediaFormat.KEY_DURATION)
                 } else 0L
-                if (durationUs <= 0) return null
+                if (durationUs <= 0) {
+                    Log.w(TAG, "Waveform: track duration unknown ($durationUs) for $path")
+                    return null
+                }
                 val totalPcmEstimate = durationUs * sampleRate / 1_000_000L
 
                 codec = android.media.MediaCodec.createDecoderByType(mime).apply {
@@ -135,7 +141,10 @@ class VoiceNoteRecorder(private val context: Context) {
                     rms[i] = if (counts[i] > 0) Math.sqrt(envelope[i] / counts[i]) else 0.0
                     if (rms[i] > maxRms) maxRms = rms[i]
                 }
-                if (maxRms <= 0.0) return null
+                if (maxRms <= 0.0) {
+                    Log.w(TAG, "Waveform: decoded stream is silent for $path")
+                    return null
+                }
                 ByteArray(points) { i -> ((rms[i] / maxRms) * 100).toInt().coerceIn(0, 100).toByte() }
             } catch (e: Exception) {
                 Log.w(TAG, "Waveform decode failed for $path: ${e.message}")
