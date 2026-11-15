@@ -42,6 +42,7 @@ class SchedulerService : Service() {
 
 
     @Inject lateinit var nodeBridge: NodeBridge
+    @Inject lateinit var repository: com.kabshah.delivra.data.ScheduleRepository
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -89,16 +90,22 @@ class SchedulerService : Service() {
             activeNodePort = DEFAULT_NODE_PORT
         }
 
-        val destDir = File(cacheDir, "nodejs-project")
+        val destDir = File(filesDir, "nodejs-project")
 
-        // Size pass (v1.1): the engine's runtime copy moved from filesDir to
-        // cacheDir — cache isn't counted toward the app's storage quota shown
-        // in Settings and is reclaimable by the OS under pressure. Safety:
-        // the version marker lives inside destDir, so if the OS ever wipes
-        // the cache the very next service start re-extracts automatically.
-        // The linked WhatsApp session (filesDir/wa_session) is NOT touched.
-        // One-time migration: drop the pre-1.1 copy from filesDir.
-        File(filesDir, "nodejs-project").deleteRecursively()
+        // v20 — the engine tree moved BACK to filesDir, reversing the v1.1
+        // size pass. cacheDir is subject to random PER-FILE eviction by
+        // Samsung Device Care / storage pressure, live-confirmed twice
+        // (2026-11-13 and 2026-11-15): Baileys' lib/Socket/index.js vanished
+        // while the version marker AND all sentinels survived, Node's ESM
+        // import graph failed at bootstrap and the whole app process died
+        // with it. filesDir is not touched by cache cleaners; at ~20MB the
+        // quota impact is negligible. Only the TMPDIR handed to the native
+        // engine stays in cacheDir — temp media-enc files are short-lived
+        // and belong in reclaimable storage. The linked WhatsApp session
+        // (filesDir/wa_session, passed over TCP as an absolute path) was
+        // never part of this tree and is NOT touched.
+        // One-time migration: drop the evictable cacheDir copy.
+        File(cacheDir, "nodejs-project").deleteRecursively()
 
         val nodeModulesDir = File(destDir, "node_modules")
         val versionMarker = File(destDir, ".delivra-assets-version")
@@ -115,10 +122,22 @@ class SchedulerService : Service() {
         val sentinelsIntact = SENTINEL_FILES.all { relPath ->
             File(destDir, relPath).exists()
         }
-        val isUpToDate = markerSaysUpToDate && sentinelsIntact
+
+        // ── .boot-ok integrity marker (v20, pairs with crash-guard.js) ──────────
+        // Sentinels are a fixed list — they can never cover every file in the
+        // import graph (live case: lib/Socket/index.js evicted, sentinels OK).
+        // crash-guard.js invalidates .boot-ok at every Node start and index.js
+        // re-writes it only after the ENTIRE ESM import graph executed. A
+        // missing marker = the last boot (or this one's predecessor) hit a
+        // file the sentinel list doesn't know about. Trust it as a third gate.
+        val bootOkIntact = File(destDir, ".boot-ok").exists()
+        val isUpToDate = markerSaysUpToDate && sentinelsIntact && bootOkIntact
 
         if (!sentinelsIntact && markerSaysUpToDate) {
             Log.w(TAG, "Version marker OK but sentinel files MISSING — Android cache eviction detected! Forcing full re-extract.")
+        }
+        if (!bootOkIntact && markerSaysUpToDate && sentinelsIntact) {
+            Log.w(TAG, "Version marker + sentinels OK but .boot-ok MISSING — last Node boot failed inside the import graph. Forcing full re-extract.")
         }
 
         if (!nodeModulesDir.exists()) {
@@ -126,13 +145,18 @@ class SchedulerService : Service() {
         }
 
         // Full refresh runs on first boot, whenever NODEJS_ASSETS_VERSION is
-        // bumped, OR when cache eviction corrupted the tree. The old tree is
-        // deleted first so stale files don't accumulate.
-        if (!isUpToDate) {
-            Log.d(TAG, "Assets changed or corrupted (want v$NODEJS_ASSETS_VERSION, sentinels=$sentinelsIntact) — wiping + refreshing...")
+        // bumped, OR when eviction/corruption is detected (sentinels, .boot-ok).
+        // The old tree is deleted first so stale files don't accumulate.
+        // Never refresh while the Node process is live — version bumps only
+        // land via APK update (= new process), so a stale verdict beside a
+        // live runtime is a bookkeeping anomaly, not a real refresh request.
+        if (!nodeAlreadyRunning && !isUpToDate) {
+            Log.d(TAG, "Assets changed or corrupted (want v$NODEJS_ASSETS_VERSION, sentinels=$sentinelsIntact, bootOk=$bootOkIntact) — wiping + refreshing...")
             destDir.deleteRecursively()
             copyAssetsToFilesIfNeeded("nodejs-project")
             versionMarker.writeText(NODEJS_ASSETS_VERSION)
+        } else if (nodeAlreadyRunning && !isUpToDate) {
+            Log.w(TAG, "Tree verdict stale but Node is live — skipping refresh to avoid pulling files out from under it")
         } else {
             Log.d(TAG, "nodejs-project up to date (v$NODEJS_ASSETS_VERSION, sentinels OK)")
         }
@@ -144,6 +168,7 @@ class SchedulerService : Service() {
         copySingleAsset("nodejs-project/whatsapp.js", File(destDir, "whatsapp.js"))
         copySingleAsset("nodejs-project/sender.js", File(destDir, "sender.js"))
         copySingleAsset("nodejs-project/atomic-auth.js", File(destDir, "atomic-auth.js"))
+        copySingleAsset("nodejs-project/crash-guard.js", File(destDir, "crash-guard.js"))
         copySingleAsset("nodejs-project/package.json", File(destDir, "package.json"))
 
         val entryPoint = File(destDir, "index.js").absolutePath
@@ -169,7 +194,12 @@ class SchedulerService : Service() {
                     isNodeStarted = true
                     Thread {
                         try {
-                            // Pass port via env so index.js picks it up
+                            // Port via CLI arg (--port=), TMPDIR via the native arg —
+                            // deliberately still cacheDir: the ENGINE tree moved to
+                            // filesDir in v20, but media-enc temp files are
+                            // short-lived and belong in reclaimable storage. Nothing
+                            // evictable under cacheDir anymore — only attach_* and
+                            // in-flight tmp files.
                             startNodeWithArguments(
                                 arrayOf("node", entryPoint, "--port=$port"),
                                 cacheDir.absolutePath
@@ -261,14 +291,14 @@ class SchedulerService : Service() {
     }
 
     /**
-     * Recursively copies assets/[srcDir] into cacheDir/[srcDir] (the engine's
-     * runtime home since the v1.1 size pass — see setupNodeRuntime), skipping
-     * files that already exist with the same size (cheap dirty-check, avoids
-     * full hash on every startup while still catching APK updates that change
-     * a file).
+     * Recursively copies assets/[srcDir] into filesDir/[srcDir] (the engine's
+     * runtime home since v20 — see setupNodeRuntime for why cacheDir was
+     * abandoned), skipping files that already exist with the same size
+     * (cheap dirty-check, avoids full hash on every startup while still
+     * catching APK updates that change a file).
      */
     private fun copyAssetsToFilesIfNeeded(srcDir: String) {
-        val destDir = File(cacheDir, srcDir)
+        val destDir = File(filesDir, srcDir)
         if (!destDir.exists()) destDir.mkdirs()
         assets.list(srcDir)?.forEach { name ->
             val srcPath = "$srcDir/$name"
@@ -295,15 +325,44 @@ class SchedulerService : Service() {
         }
     }
 
+    // ── Dispatch lifecycle refcount ──────────────────────────────────────────
+    // Two dispatches can race into the same service instance (periodic backstop
+    // tick + alarm-triggered once, 2026-11-15 19:13 live case: both ran
+    // concurrently). The DB claim guard stops a double-SEND, but the LOSING
+    // coroutine's finally used to disconnect() + stopSelf() unconditionally —
+    // destroying the service and cancelling the WINNER's job mid-send
+    // ("Dispatch error: Job was cancelled"), leaving the row stuck in SENDING
+    // forever. Count active dispatch coroutines; only the LAST one out may
+    // tear the runtime down.
+    private val activeDispatchCount = java.util.concurrent.atomic.AtomicInteger(0)
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val messageIds = intent?.getStringArrayListExtra(EXTRA_MESSAGE_IDS) ?: emptyList<String>()
         Log.d(TAG, "onStartCommand: dispatching ${messageIds.size} message(s)")
 
         val keepAlive = intent?.getBooleanExtra("keep_alive", false) ?: false
 
+        val isDispatch = !keepAlive && messageIds.isNotEmpty()
+        if (isDispatch) activeDispatchCount.incrementAndGet()
+
         serviceScope.launch {
             var wakeLock: android.os.PowerManager.WakeLock? = null
             try {
+                // ── Tombstone + attempt pre-count (2026-11 crash-loop fix) ────
+                // Both MUST happen before any engine work. If this process dies
+                // during Node boot / Baileys connect — before sendMessage ever
+                // claims the rows — the row stays PENDING and the next backstop
+                // re-dispatches it: one process-killing send then crashed the
+                // app on every open for a whole day (until the 6h grace window
+                // failed it). Now: (a) the tombstone file survives as the only
+                // evidence of a hard death (DelivraApp surfaces it on next
+                // launch), and (b) the attempts are pre-counted so the due
+                // path's MAX_RETRY_ATTEMPTS cap stops the loop.
+                if (!keepAlive && messageIds.isNotEmpty()) {
+                    writeDispatchTombstone(messageIds)
+                    messageIds.forEach { id -> repository.recordDispatchAttempt(id) }
+                }
+
                 // Wait for bridge channel to be initialized by setupNodeRuntime
                 val deadline = System.currentTimeMillis() + 90_000L
                 while (!nodeBridge.isChannelInitialized && System.currentTimeMillis() < deadline) {
@@ -341,15 +400,46 @@ class SchedulerService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "Dispatch error: ${e.message}", e)
             } finally {
+                // Dispatch ended while this process was alive (success, timeout,
+                // or handled error) — the tombstone has served its purpose. If
+                // the process had died hard mid-dispatch, this line never runs
+                // and the file survives for DelivraApp to report.
+                clearDispatchTombstone()
                 try { wakeLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
-                if (!keepAlive) {
+                if (isDispatch && activeDispatchCount.decrementAndGet() == 0) {
+                    // Last dispatch out — safe to tear down. (disconnect() is
+                    // non-suspend, so this cleanup also runs when the coroutine
+                    // itself was cancelled mid-flight.)
                     nodeBridge.disconnect()
-                    stopSelf(startId)
+                    stopSelf()
                 }
             }
         }
 
         return START_NOT_STICKY  // No auto-restart — AlarmManager handles next wakeup (§6.6)
+    }
+
+    // ── Dispatch tombstone ─────────────────────────────────────────────────────
+    // A hard process death mid-dispatch (native crash, WASM abort, LMK) bypasses
+    // every try/catch in the dispatch path — this tiny file is the ONLY evidence
+    // that it happened, and what it was dispatching. See DelivraApp recovery.
+
+    private fun writeDispatchTombstone(ids: List<String>) {
+        try {
+            val json = StringBuilder("{\"ids\":[")
+            ids.forEachIndexed { i, id ->
+                if (i > 0) json.append(',')
+                json.append('"').append(id.replace("\"", "")).append('"')
+            }
+            json.append("],\"at\":").append(System.currentTimeMillis()).append('}')
+            java.io.File(filesDir, Constants.DISPATCH_TOMBSTONE).writeText(json.toString())
+        } catch (e: Exception) {
+            Log.w(TAG, "Dispatch tombstone write failed: ${e.message}")
+        }
+    }
+
+    private fun clearDispatchTombstone() {
+        try { java.io.File(filesDir, Constants.DISPATCH_TOMBSTONE).delete() } catch (_: Exception) {}
     }
 
     /** Suspend until connection reaches CONNECTED, or throw on terminal state / timeout. */
@@ -463,8 +553,26 @@ class SchedulerService : Service() {
          *                socket session while text worked), and whatsapp.js now falls
          *                back to the bundled Baileys protocol version instead of a
          *                stale hardcoded triple that WhatsApp servers can reject.
+         *          v19 = IMAGE SEND FIX (2026-11 all-day crash loop): the first VN+image
+         *                send aborted the whole process inside sharp → @img/sharp-wasm32
+         *                (8.9MB WASM libvips — the only image backend on this runtime;
+         *                jimp isn't shipped). A WASM abort is uncatchable, the row stayed
+         *                PENDING, and every app open re-dispatched → all-day crash loop
+         *                until the 6h grace window failed it. Thumbnails now come from
+         *                Kotlin platform codecs (sender.js jpegThumbnail passthrough;
+         *                Patch 6 neutralizes getImageProcessingLibrary), plus dispatch
+         *                tombstone + attempt pre-count in SchedulerService.
+         *          v20 = ENGINE TREE MOVED TO filesDir (root-cause fix for the
+         *                eviction class): cacheDir suffers random per-file eviction
+         *                (Samsung Device Care — live-confirmed twice), which killed
+         *                Baileys' lib/Socket/index.js while the version marker AND
+         *                all sentinels survived. Plus the .boot-ok integrity marker
+         *                (crash-guard.js arms handlers before ANY engine import,
+         *                index.js re-marks after the full ESM graph executes; a
+         *                missing marker forces re-extract) and lib/Socket/index.js
+         *                added to the sentinel list.
          */
-        private const val NODEJS_ASSETS_VERSION = "18"
+        private const val NODEJS_ASSETS_VERSION = "20"
 
         /**
          * Sentinel files that MUST exist for Node to boot successfully.
@@ -480,8 +588,21 @@ class SchedulerService : Service() {
             "sender.js",
             "atomic-auth.js",
             "node_modules/@whiskeysockets/baileys/lib/index.js",
+            // lib/Socket/index.js is THE twice-confirmed eviction victim
+            // (2026-11-13 and 2026-11-15 crashes) — its absence failed the
+            // whole ESM graph while every other sentinel survived.
+            "node_modules/@whiskeysockets/baileys/lib/Socket/index.js",
             "node_modules/@hapi/boom/lib/index.js",
-            "node_modules/pino/pino.js"
+            "node_modules/pino/pino.js",
+            // The three DELIVRA-patched Baileys files. Their patch markers exempt
+            // them from minification, but NOTHING exempted them from cache
+            // eviction: if Android evicts one of these while the version marker
+            // survives, Node's import chain fails BEFORE index.js registers its
+            // uncaughtException handler → default Node behavior = process.exit →
+            // whole app dies at boot → day-2-style crash loop (the 2026-11 class).
+            "node_modules/@whiskeysockets/baileys/lib/Utils/messages-media.js",
+            "node_modules/@whiskeysockets/baileys/lib/Utils/messages.js",
+            "node_modules/@whiskeysockets/baileys/lib/Socket/messages-send.js"
         )
 
         @Volatile

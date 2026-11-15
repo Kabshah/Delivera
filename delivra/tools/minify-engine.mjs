@@ -16,6 +16,15 @@
  *      mediaConn` throws on every later call — every media upload then fails for
  *      the rest of the socket session while text keeps working. The guard resets
  *      the cache on rejection so the next call re-fetches.
+ *    - Baileys waveform passthrough (messages.js): keeps the Kotlin-computed
+ *      waveform instead of overwriting it with undefined (audio-decode can't
+ *      decode Opus and isn't installed).
+ *    - Baileys no WASM image decode (messages-media.js): sharp resolves to
+ *      @img/sharp-wasm32 on Android (8.9MB WASM libvips; jimp not shipped, no
+ *      native .node matches) and a WASM decode abort is UNcatchable — it kills
+ *      the whole Android process. Neutralized: thumbnails come from Kotlin
+ *      platform codecs (attachmentThumbnail → jpegThumbnail) and Baileys skips
+ *      generateThumbnail entirely; leftover JS-side decode fails cleanly.
  *
  * 2. VERIFICATION (always enforced): after patching, every required patch must
  *    report "applied" or "already present". A patch that matches NEITHER its
@@ -183,6 +192,48 @@ const PATCHES = [
       '                    // audio-decode path cannot decode OGG/Opus. Keep it when\n' +
       '                    // present instead of overwriting with undefined.\n' +
       '                    uploadData.waveform = uploadData.waveform ?? await getAudioWaveform(originalFilePath, logger);',
+  },
+  // ── 6. No WASM image decode (the 2026-11 process-death bug): sharp resolves
+  //    to @img/sharp-wasm32 on Android (8.9MB WASM libvips — jimp isn't shipped
+  //    and no native .node matches), and a WASM decode abort is UNcatchable:
+  //    it kills the whole Android process. Live case: the first VN+image send
+  //    aborted mid-thumbnail; the row stayed due, and every app open
+  //    re-dispatched it → all-day crash loop until the 6h grace window failed
+  //    it. Kotlin now supplies thumbnails (attachmentThumbnail → sender.js
+  //    jpegThumbnail), so Baileys skips generateThumbnail entirely; this patch
+  //    makes any leftover JS-side image decode fail cleanly (the caller's
+  //    existing try/catch swallows the Boom) instead of loading WASM.
+  {
+    name: '6. no wasm image decode (messages-media.js)',
+    file: join(baileys, 'lib', 'Utils', 'messages-media.js'),
+    required: true,
+    marker: 'DELIVRA PATCH (no wasm image decode)',
+    target:
+      'const getImageProcessingLibrary = async () => {\n' +
+      '    //@ts-ignore\n' +
+      "    const [jimp, sharp] = await Promise.all([import('jimp').catch(() => { }), import('sharp').catch(() => { })]);\n" +
+      '    if (sharp) {\n' +
+      '        return { sharp };\n' +
+      '    }\n' +
+      '    if (jimp) {\n' +
+      '        return { jimp };\n' +
+      '    }\n' +
+      "    throw new Boom('No image processing library available');\n" +
+      '};',
+    replacement:
+      '    // DELIVRA PATCH (no wasm image decode): sharp resolves to @img/sharp-wasm32\n' +
+      '    // (an 8.9MB WASM libvips) on this runtime — no native .node binary matches\n' +
+      '    // Android and jimp is not shipped, so WASM was the "working" backend. A WASM\n' +
+      '    // decode failure (OOM trap / abort) is NOT a catchable JS exception: it kills\n' +
+      '    // the entire Android process. Thumbnails are generated in Kotlin with\n' +
+      '    // platform codecs (NodeBridge.sendMessage → attachmentThumbnail → sender.js\n' +
+      '    // jpegThumbnail), which makes Baileys skip this path entirely. Returning an\n' +
+      '    // empty library makes generateThumbnail throw a Boom, which the caller\'s\n' +
+      '    // existing try/catch swallows — the send proceeds without a thumbnail\n' +
+      '    // instead of crashing the process.\n' +
+      'const getImageProcessingLibrary = async () => {\n' +
+      '    return {};\n' +
+      '};',
   },
 ];
 

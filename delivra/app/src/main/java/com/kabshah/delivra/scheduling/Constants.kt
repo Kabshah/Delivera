@@ -39,4 +39,13 @@ object Constants {
     // AlarmManager intent action
     const val ACTION_ALARM_FIRE = "com.kabshah.delivra.ACTION_ALARM_FIRE"
     const val EXTRA_MESSAGE_ID = "message_id"
+
+    /**
+     * Dispatch tombstone (filesDir). SchedulerService writes it BEFORE any
+     * engine work and clears it when a dispatch finishes normally. A hard
+     * process death mid-dispatch (native/WASM abort, LMK — nothing catchable
+     * in Java lands) leaves the file behind, so DelivraApp can surface
+     * "process died during dispatch of X" in the diagnostics ring buffer.
+     */
+    const val DISPATCH_TOMBSTONE = "dispatch_tombstone.json"
 }

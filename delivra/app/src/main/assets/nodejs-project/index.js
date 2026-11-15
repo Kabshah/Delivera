@@ -8,6 +8,11 @@
  * - No request/response timeouts for long async ops — results arrive as push events
  */
 
+// crash-guard MUST be the first import: it registers the uncaughtException
+// handler BEFORE any engine module is linked, so a cache-eviction break in
+// the ESM import graph (e.g. an evicted Baileys file) is caught and marked
+// instead of killing the whole Android app process (see crash-guard.js).
+import { markBootOk } from './crash-guard.js';
 import './polyfill.js';
 import { connectToWhatsApp, getConnectionState, disconnectWhatsApp, getContacts, startPairing } from './whatsapp.js';
 import { sendMessage } from './sender.js';
@@ -22,13 +27,9 @@ import net from 'net';
 // if the CA store turns out to be genuinely incomplete.
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-process.on('uncaughtException', (err) => {
-  console.error('[Delivra Node CRASH] uncaughtException:', err.message || err, err.stack || '');
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[Delivra Node CRASH] unhandledRejection:', reason);
-});
+// NOTE: no process.on('uncaughtException') here — crash-guard.js owns those
+// handlers (registered before ANY engine import) and distinguishes bootstrap
+// failures (mark broken + exit) from late runtime errors (log + stay alive).
 
 let clientSocket = null;
 
@@ -210,5 +211,12 @@ function sendResponse(obj) {
 function sendError(code, message, correlationId) {
   sendResponse({ type: 'error', code, message, correlationId });
 }
+
+// The ENTIRE ESM import graph (crash-guard, polyfill, whatsapp, sender and
+// every node_modules file they pull in) has now executed without error —
+// that is the integrity signal the Kotlin side keys the engine tree on.
+// If any file was evicted, linking failed above and this line never ran,
+// leaving .boot-ok absent → SchedulerService force-refreshes the tree.
+markBootOk();
 
 console.log('[Delivra Node engine] Ready');

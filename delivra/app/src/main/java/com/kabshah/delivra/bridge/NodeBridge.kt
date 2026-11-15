@@ -298,6 +298,29 @@ class NodeBridge @Inject constructor(
                         put("attachmentPath", resolvedPath)
                         put("attachmentMimeType", msg.attachmentMimeType ?: "application/octet-stream")
                         put("attachmentDisplayName", msg.attachmentDisplayName ?: "attachment")
+
+                        // ── Image thumbnail (Kotlin platform codecs) ──────────
+                        // The engine's generateThumbnail used to run sharp →
+                        // @img/sharp-wasm32 (WASM libvips); a WASM decode abort
+                        // kills the whole process, uncatchable. That path is
+                        // patched out (minify-engine patch 6); passing
+                        // jpegThumbnail makes Baileys skip generateThumbnail
+                        // entirely (messages.js: requiresThumbnailComputation).
+                        // Same pattern as the voiceNoteSeconds/waveform
+                        // passthrough above.
+                        if (msg.attachmentMimeType?.startsWith("image/") == true) {
+                            try {
+                                com.kabshah.delivra.attachments.ImageThumb.generate(resolvedPath)?.let { thumb ->
+                                    put("attachmentThumbnail", android.util.Base64.encodeToString(thumb.bytes, android.util.Base64.NO_WRAP))
+                                    put("attachmentWidth", thumb.width)
+                                    put("attachmentHeight", thumb.height)
+                                }
+                            } catch (e: Exception) {
+                                // No thumbnail → image sends without a preview;
+                                // never fall back to JS-side image decoding.
+                                Log.w(TAG, "image thumbnail generation failed: ${e.message}")
+                            }
+                        }
                     } else {
                         // Attachment URI is set but the file can't be resolved — fail
                         // explicitly instead of silently sending text-only.

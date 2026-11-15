@@ -43,12 +43,16 @@ interface ScheduledMessageDao {
      * Atomically transitions a single PENDING row to CLAIMED in one SQL statement.
      * Returns the number of rows updated (0 = already claimed by someone else).
      * This prevents the AlarmManager + WorkManager double-dispatch race.
-     * Each claim IS one send attempt — increment the counter here so retry
-     * caps (§6.2) actually advance.
+     *
+     * attemptCount is NOT incremented here — it used to be, which double-counted
+     * every attempt (SchedulerService's recordDispatchAttempt already counts one
+     * attempt per dispatch, BEFORE the engine boots, so process deaths during
+     * boot/connect are counted too). The claim is purely the double-dispatch
+     * guard; attempt counting lives in countDispatchAttempt.
      */
     @Query(
         "UPDATE scheduled_messages SET status = 'CLAIMED', " +
-                "attemptStartedAtEpochMs = :nowMs, attemptCount = attemptCount + 1 " +
+                "attemptStartedAtEpochMs = :nowMs " +
                 "WHERE id = :id AND status = 'PENDING'"
     )
     suspend fun atomicClaim(id: String, nowMs: Long): Int
@@ -63,6 +67,23 @@ interface ScheduledMessageDao {
                 "WHERE id = :id AND status = 'RETRYABLE_FAILURE'"
     )
     suspend fun retryToPending(id: String): Int
+
+    /**
+     * Count a dispatch attempt BEFORE any engine work runs (called from
+     * SchedulerService.onStartCommand). Unlike atomicClaim, the status stays
+     * PENDING: if the process dies during Node boot / Baileys connect — before
+     * sendMessage ever claims the row — the attempt is still counted, so the
+     * attempt cap in getDueMessagesAndHandleMissed can stop a crash loop
+     * instead of re-dispatching a process-killing send until the 6h grace
+     * window (2026-11 all-day crash loop). Guarded by status so it never
+     * double-counts a row another dispatch already claimed or moved on.
+     */
+    @Query(
+        "UPDATE scheduled_messages SET " +
+                "attemptStartedAtEpochMs = :nowMs, attemptCount = attemptCount + 1 " +
+                "WHERE id = :id AND status = 'PENDING'"
+    )
+    suspend fun countDispatchAttempt(id: String, nowMs: Long): Int
 
     // ── Reconciliation queries (§6.7) ─────────────────────────────────────────
     /**

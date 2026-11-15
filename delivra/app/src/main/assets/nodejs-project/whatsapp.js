@@ -216,6 +216,21 @@ function createSocket() {
   });
 
   sock.ev.on('creds.update', saveCreds);
+
+  // ── Outgoing delivery-receipt tracing (§6.9 diagnostics) ────────────────
+  // WhatsApp status transitions for OUR own messages: 1 = sent to server,
+  // 2 = receipt from server (server accepted), 3 = delivered to the
+  // recipient device, 4 = read. Pinpoint: the 2026-11-15 19:49 PTT resolved
+  // on send yet never reached the recipient — with this trace a repeat shows
+  // exactly which stage swallowed it (no status ≥3 = server-side drop).
+  sock.ev.on('messages.update', (updates) => {
+    for (const { key, update } of updates) {
+      if (key?.fromMe) {
+        console.log(`[Delivra Node] msg-status key=${key.id} remote=${key.remoteJid} status=${update.status}`);
+      }
+    }
+  });
+
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
     console.log('[Delivra Node] Connection update:', JSON.stringify(update));

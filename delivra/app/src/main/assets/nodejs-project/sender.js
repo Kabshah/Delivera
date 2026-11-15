@@ -108,9 +108,9 @@ async function sendMessage(payload) {
       if (payload.voiceNoteSeconds) voiceContent.seconds = payload.voiceNoteSeconds;
       if (payload.voiceNoteWaveform) voiceContent.waveform = Buffer.from(payload.voiceNoteWaveform, 'base64');
       console.log('[Delivra sender] Voice note metadata: seconds=', voiceContent.seconds ?? '(baileys will derive)', 'waveform=', voiceContent.waveform ? `${voiceContent.waveform.length}B` : '(none)');
-      await sock.sendMessage(jid, voiceContent);
+      const vnSent = await sock.sendMessage(jid, voiceContent);
       done.add('voice');
-      console.log('[Delivra sender] Voice note sent successfully');
+      console.log('[Delivra sender] Voice note sent successfully' + (vnSent?.key?.id ? ` (key.id=${vnSent.key.id})` : ''));
     }
 
     // ── File attachment (image / document) ───────────────────────────────
@@ -132,32 +132,53 @@ async function sendMessage(payload) {
       console.log('[Delivra sender] Attachment size:', fileSize, 'bytes, isImage:', isImage);
 
       if (isImage) {
+        console.log('[Delivra sender] RSS before image read:', Math.round(process.memoryUsage().rss / 1048576), 'MB');
         const content = {
           image: fs.readFileSync(attachmentPath),
           mimetype: attachmentMimeType || 'image/png',
         };
+        // ── Thumbnail passthrough (2026-11 crash fix) ─────────────────────
+        // Kotlin generates the thumbnail with platform codecs (see
+        // NodeBridge.sendMessage → attachmentThumbnail). Passing jpegThumbnail
+        // here makes Baileys SKIP its own generateThumbnail entirely
+        // (messages.js: requiresThumbnailComputation is false when
+        // uploadData.jpegThumbnail is defined). That path used to run sharp →
+        // @img/sharp-wasm32 (8.9MB WASM libvips, the only "working" backend on
+        // this runtime since jimp isn't shipped) and a WASM decode abort kills
+        // the whole Android process — uncatchable. If Kotlin couldn't produce
+        // a thumbnail we send WITHOUT one (clients render the original); we
+        // never fall back to JS-side image decoding.
+        if (payload.attachmentThumbnail) {
+          content.jpegThumbnail = Buffer.from(payload.attachmentThumbnail, 'base64');
+          if (payload.attachmentWidth) content.width = payload.attachmentWidth;
+          if (payload.attachmentHeight) content.height = payload.attachmentHeight;
+          console.log('[Delivra sender] Using Kotlin-provided thumbnail:',
+            content.jpegThumbnail.length, 'bytes,', payload.attachmentWidth, 'x', payload.attachmentHeight);
+        } else {
+          console.log('[Delivra sender] No Kotlin thumbnail — sending image without preview');
+        }
         if (messageText && !done.has('text')) {
           content.caption = messageText;
         }
-        await sock.sendMessage(jid, content);
+        const imgSent = await sock.sendMessage(jid, content);
         if (content.caption) done.add('text');
-        console.log('[Delivra sender] Image sent successfully');
+        console.log('[Delivra sender] Image sent successfully' + (imgSent?.key?.id ? ` (key.id=${imgSent.key.id})` : ''));
       } else {
-        await sock.sendMessage(jid, {
+        const docSent = await sock.sendMessage(jid, {
           document: fs.readFileSync(attachmentPath),
           mimetype: attachmentMimeType || 'application/octet-stream',
           fileName: attachmentDisplayName || 'attachment',
         });
-        console.log('[Delivra sender] Document sent successfully');
+        console.log('[Delivra sender] Document sent successfully' + (docSent?.key?.id ? ` (key.id=${docSent.key.id})` : ''));
       }
       done.add('doc');
     }
 
     // ── Plain text ──────────────────────────────────────────────────────
     if (messageText && !done.has('text')) {
-      await sock.sendMessage(jid, { text: messageText });
+      const txtSent = await sock.sendMessage(jid, { text: messageText });
       done.add('text');
-      console.log('[Delivra sender] Text sent successfully');
+      console.log('[Delivra sender] Text sent successfully' + (txtSent?.key?.id ? ` (key.id=${txtSent.key.id})` : ''));
     }
 
     completedParts.delete(messageId);

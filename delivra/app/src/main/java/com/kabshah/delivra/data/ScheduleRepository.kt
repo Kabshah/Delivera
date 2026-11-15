@@ -80,6 +80,18 @@ class ScheduleRepository @Inject constructor(
     }
 
     /**
+     * Count a dispatch attempt up-front (PENDING rows only — the DAO guard
+     * skips rows another dispatch already claimed). See
+     * ScheduledMessageDao.countDispatchAttempt: this is what bounds a
+     * process-death crash loop to MAX_RETRY_ATTEMPTS tries instead of looping
+     * until the 6h missed-schedule grace window.
+     */
+    suspend fun recordDispatchAttempt(id: String): Boolean {
+        val updated = dao.countDispatchAttempt(id, System.currentTimeMillis())
+        return updated > 0
+    }
+
+    /**
      * Flip a RETRYABLE_FAILURE row back to PENDING so a scheduled retry can go
      * through the normal claim→send flow (§6.2). Returns false if the row moved
      * on meanwhile (sent / cancelled / promoted) — the retry is then dropped.
@@ -229,19 +241,40 @@ class ScheduleRepository @Inject constructor(
     suspend fun getDueMessagesAndHandleMissed(): List<ScheduledMessage> {
         val now = System.currentTimeMillis()
         val due = dao.getDueMessages(now)
-        val (sendable, missed) = due.partition {
-            (now - it.resolvedEpochMs) <= Constants.MISSED_SCHEDULE_GRACE_MS
-        }
-        missed.forEach { msg ->
-            dao.update(
-                msg.copy(
-                    status = MessageStatus.FINAL_FAILURE,
-                    lastErrorReason = "missed_window_exceeded",
-                    terminalAtEpochMs = now
-                )
-            )
-            failureNotifier.notifyFailed(msg.contactName, "missed_window_exceeded", msg.id)
-            Log.d(TAG, "Message id=${msg.id} missed grace window — marked FINAL_FAILURE")
+        val sendable = mutableListOf<ScheduledMessage>()
+        due.forEach { msg ->
+            when {
+                (now - msg.resolvedEpochMs) > Constants.MISSED_SCHEDULE_GRACE_MS -> {
+                    dao.update(
+                        msg.copy(
+                            status = MessageStatus.FINAL_FAILURE,
+                            lastErrorReason = "missed_window_exceeded",
+                            terminalAtEpochMs = now
+                        )
+                    )
+                    failureNotifier.notifyFailed(msg.contactName, "missed_window_exceeded", msg.id)
+                    Log.d(TAG, "Message id=${msg.id} missed grace window — marked FINAL_FAILURE")
+                }
+                // §6.2 attempt cap, enforced in the DUE path. Every dispatch
+                // attempt is counted by recordDispatchAttempt BEFORE the engine
+                // boots, including attempts that died in a hard process crash
+                // (native/WASM abort — no status write ever landed). A row that
+                // keeps crashing the process must NOT be re-dispatched on every
+                // backstop + app open until the grace window: that turned one
+                // bad VN+image send into an all-day app crash loop (2026-11).
+                msg.attemptCount >= Constants.MAX_RETRY_ATTEMPTS -> {
+                    dao.update(
+                        msg.copy(
+                            status = MessageStatus.FINAL_FAILURE,
+                            lastErrorReason = "dispatch_attempts_exhausted",
+                            terminalAtEpochMs = now
+                        )
+                    )
+                    failureNotifier.notifyFailed(msg.contactName, "dispatch_attempts_exhausted", msg.id)
+                    Log.w(TAG, "Message id=${msg.id} exhausted ${Constants.MAX_RETRY_ATTEMPTS} dispatch attempts — marked FINAL_FAILURE")
+                }
+                else -> sendable += msg
+            }
         }
         return sendable
     }
