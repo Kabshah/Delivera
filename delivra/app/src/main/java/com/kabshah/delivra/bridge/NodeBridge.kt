@@ -342,20 +342,36 @@ class NodeBridge @Inject constructor(
             val retryable = response.optBoolean("retryable", true)
 
             if (success) {
+                // Teardown-race diagnostics (2026-11-18): the engine now waits
+                // ≤8s after each media send for a server receipt (status >= 2).
+                // deliveryConfirmed=false means the WS closed on a send the
+                // server never acknowledged — the exact green-but-invisible
+                // image signature. Green semantics stay unchanged (success =
+                // send promise resolved; never auto-retry, duplicate risk).
+                val deliveryConfirmed = response.optBoolean("deliveryConfirmed", false)
+                val sentKeyId = response.optString("keyId", "")
+                ringBuffer.record(RingEvent.DeliveryReceipt(messageId, deliveryConfirmed))
+                if (deliveryConfirmed) {
+                    Log.i(TAG, "sendMessage: id=$messageId SENT_CONFIRMED server-receipt ✓ keyId=$sentKeyId")
+                } else {
+                    Log.w(TAG, "sendMessage: id=$messageId SENT_CONFIRMED but NO server receipt — message may have been dropped")
+                }
                 repository.updateStatus(messageId, MessageStatus.SENT_CONFIRMED)
                 ringBuffer.record(RingEvent.AckReceived(messageId))
-                // The voice note file has served its purpose — delete immediately
-                // (§2.5). The DB row remains until §4.8's 12h cleanup so the Queue
-                // still shows "Sent ✓". Retryable rows keep their file instead.
-                msg.voiceNotePath?.let { path ->
-                    try { java.io.File(path).delete() } catch (_: Exception) { /* best effort */ }
+                // The voice note file has served its purpose — delete on receipt-
+                // confirmed success (§2.5). The DB row remains until §4.8's 12h
+                // cleanup so the Queue still shows "Sent ✓". Retryable rows and
+                // unconfirmed sends keep their file (forensics + §4.8 cleanup).
+                if (deliveryConfirmed) {
+                    msg.voiceNotePath?.let { path ->
+                        try { java.io.File(path).delete() } catch (_: Exception) { /* best effort */ }
+                    }
+                    // Staged local attachment copy — same rule: delete on receipt-
+                    // confirmed success ONLY. Failed rows keep the file so retries work.
+                    if (!msg.attachmentUri.isNullOrBlank() && !msg.attachmentUri.startsWith("content:")) {
+                        try { java.io.File(msg.attachmentUri.removePrefix("file://")).delete() } catch (_: Exception) { /* best effort */ }
+                    }
                 }
-                // Staged local attachment copy has served its purpose — delete on
-                // confirmed success ONLY. Failed rows keep the file so retries work.
-                if (!msg.attachmentUri.isNullOrBlank() && !msg.attachmentUri.startsWith("content:")) {
-                    try { java.io.File(msg.attachmentUri.removePrefix("file://")).delete() } catch (_: Exception) { /* best effort */ }
-                }
-                Log.d(TAG, "sendMessage: id=$messageId SENT_CONFIRMED")
                 SendResult.Success
             } else {
                 val newStatus = if (retryable && msg.attemptCount < Constants.MAX_RETRY_ATTEMPTS) {

@@ -39,6 +39,7 @@ sealed class RingEvent {
     data class SendRequested(val msgId: String) : RingEvent() { override val ts = Timestamp() }
     data class AckReceived(val msgId: String) : RingEvent() { override val ts = Timestamp() }
     data class SendFailed(val msgId: String, val reason: String) : RingEvent() { override val ts = Timestamp() }
+    data class DeliveryReceipt(val msgId: String, val confirmed: Boolean) : RingEvent() { override val ts = Timestamp() }
     data class Reconciled(val reverted: Int, val needsReview: Int) : RingEvent() { override val ts = Timestamp() }
     data class AlarmFired(val msgId: String) : RingEvent() { override val ts = Timestamp() }
     data class BootRecovery(val pendingCount: Int) : RingEvent() { override val ts = Timestamp() }
@@ -50,6 +51,7 @@ sealed class RingEvent {
         is SendRequested -> "[${ts}] Send requested: $msgId"
         is AckReceived -> "[${ts}] Ack received ✓ $msgId"
         is SendFailed -> "[${ts}] Send failed: $msgId — $reason"
+        is DeliveryReceipt -> "[${ts}] Server receipt $msgId: " + if (confirmed) "confirmed ✓" else "NOT confirmed — may be lost"
         is Reconciled -> "[${ts}] Reconcile: reverted $reverted, needs_review $needsReview"
         is AlarmFired -> "[${ts}] Alarm fired: $msgId"
         is BootRecovery -> "[${ts}] Boot recovery: $pendingCount alarms re-registered"

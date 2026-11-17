@@ -68,6 +68,45 @@ const MAX_BACKOFF_MS = 30000;
 
 let globalConnectError = 'None';
 
+// ── Server-receipt waiters (teardown-race fix, 2026-11-18) ─────────────────
+// Baileys resolves sendMessage() when the WS frame is written LOCALLY — not
+// when the server has accepted the message. The dispatch then disconnects
+// within milliseconds (SchedulerService finally-block), and a stanza the
+// server hasn't processed yet is silently dropped while the app already went
+// green. Proven live: the 2026-11-15 19:49 PTT drop, and every
+// green-but-invisible single-image send. sender.js awaits this helper after
+// each media send, which keeps the socket open until a receipt (status >= 2,
+// server receipt) arrives for the message's key.id — or until the timeout.
+const receiptWaiters = new Map(); // key.id -> Set<resolver>
+
+function waitForMessageReceipt(keyId, timeoutMs = 8000) {
+  if (!keyId) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    function removeWaiter() {
+      const set = receiptWaiters.get(keyId);
+      if (set) {
+        set.delete(waiter);
+        if (!set.size) receiptWaiters.delete(keyId);
+      }
+    }
+    const waiter = (update) => {
+      clearTimeout(timer);
+      removeWaiter();
+      resolve(update);
+    };
+    const timer = setTimeout(() => {
+      removeWaiter();
+      resolve(null); // timeout — non-fatal, caller proceeds with unconfirmed
+    }, timeoutMs);
+    let set = receiptWaiters.get(keyId);
+    if (!set) {
+      set = new Set();
+      receiptWaiters.set(keyId, set);
+    }
+    set.add(waiter);
+  });
+}
+
 // Bug 3 fix: intentional-close guard prevents the exponential-backoff
 // setTimeout(createSocket, backoff) from firing after a deliberate
 // disconnectWhatsApp() call. Without this, Day-2 service restart + new
@@ -227,6 +266,14 @@ function createSocket() {
     for (const { key, update } of updates) {
       if (key?.fromMe) {
         console.log(`[Delivra Node] msg-status key=${key.id} remote=${key.remoteJid} status=${update.status}`);
+        // Server receipt (status >= 2) for a message someone is waiting on —
+        // resolve its waiter (see waitForMessageReceipt above).
+        if ((update.status ?? 0) >= 2) {
+          const waiters = receiptWaiters.get(key.id);
+          if (waiters) {
+            for (const w of [...waiters]) w(update);
+          }
+        }
       }
     }
   });
@@ -364,5 +411,6 @@ export {
   getContacts,
   disconnectWhatsApp,
   getConnectionState,
+  waitForMessageReceipt,
 };
 export function getSocket() { return sock; }

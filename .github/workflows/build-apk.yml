@@ -125,13 +125,15 @@ jobs:
             | `Delivra-armeabi-v7a.apk` | Older / entry-level 32-bit-only phones — use only if the arm64 APK refuses to install |
 
             ### What's new in ${{ github.ref_name }}
+            - **Image Delivery Fixed**: single photos (JPG/JPEG/PNG) showed "Sent" in the app but silently never arrived in WhatsApp — the engine disconnected ~15 ms after the send, before the WhatsApp server finished processing it. The engine now stays connected for a short server-ack window after every media send (photos, voice notes, documents), so attachments actually land. Verified end-to-end on hardware.
+            - **Clearer WhatsApp Link Status** (Settings): the connection card now shows an explicit **"WhatsApp linked: Yes ✓ / No"** read from the saved session on disk, explains why "Disconnected (idle)" between sends is normal, and only shows the Link button when it can actually help.
             - **Day-2 Reliability — Root-Cause Fix**: the scheduling engine now lives in permanent app storage instead of the system cache. Android/Samsung cache eviction had been silently deleting engine files after a day or two of use, crashing the whole app on the next scheduled send ("fine on day 1, broken on day 2"). That entire failure class is gone.
             - **Self-Healing Engine Integrity**: a crash-guard arms error handlers before anything loads, and a `.boot-ok` marker is written only after the entire engine verifies. If anything is ever corrupted, the app repairs itself on the next start — one visible restart, never an invisible all-day crash loop.
             - **Race-Safe Dispatch**: concurrent alarm + background dispatches no longer cancel each other mid-send (messages stuck in "Sending").
             - **Voice Note + Image Combos**: thumbnails are computed natively by Android before the engine sees them — large photo + voice note combinations can no longer abort the process. Recording, delivery and playback all verified end-to-end on hardware.
             - **Delivery Tracing**: every sent part logs its message key and WhatsApp delivery-status transitions, so a message accepted by the server but not delivered to the recipient is diagnosable from logs.
             - **Multi-day Stability**: dispatch tombstone + attempt caps mean a hard process death fails a row cleanly instead of looping crashes all day; reconciliation still self-heals stuck rows within minutes.
-            - **Assets Version 20**: the engine refreshes itself once on update (permanent storage move).
+            - **Assets Version 21**: the engine refreshes itself once on update.
 
             ### Installation
             ```bash

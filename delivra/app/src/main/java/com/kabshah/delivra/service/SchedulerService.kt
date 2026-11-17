@@ -520,8 +520,10 @@ class SchedulerService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val EXTRA_MESSAGE_IDS = "message_ids"
 
-        /** Hard cap for the dispatch wakelock: Node boot + connect + batch send. */
-        private const val DISPATCH_WAKELOCK_TIMEOUT_MS = 3 * 60 * 1000L
+        /** Hard cap for the dispatch wakelock: Node boot + connect + batch send.
+         *  Raised 3→5 min (2026-11-18): each media send now waits up to 8s for a
+         *  server receipt (teardown-race fix), which stacks across a batch. */
+        private const val DISPATCH_WAKELOCK_TIMEOUT_MS = 5 * 60 * 1000L
 
         /** Default TCP port. Falls back to 3001..3009 if busy. */
         private const val DEFAULT_NODE_PORT = 3000
@@ -572,7 +574,7 @@ class SchedulerService : Service() {
          *                missing marker forces re-extract) and lib/Socket/index.js
          *                added to the sentinel list.
          */
-        private const val NODEJS_ASSETS_VERSION = "20"
+        private const val NODEJS_ASSETS_VERSION = "21"
 
         /**
          * Sentinel files that MUST exist for Node to boot successfully.

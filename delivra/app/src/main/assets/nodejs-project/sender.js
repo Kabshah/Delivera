@@ -12,10 +12,30 @@
  * - non-retryable: invalid_jid, media_too_large → FINAL_FAILURE (no retry waste)
  */
 
-import { getSocket } from './whatsapp.js';
+import { getSocket, waitForMessageReceipt } from './whatsapp.js';
 import fs from 'fs';
 
 const NON_RETRYABLE_REASONS = new Set(['invalid_jid', 'media_too_large', 'source_file_unavailable', 'zero_byte_file_error']);
+
+// Server-receipt window after each media send (teardown-race fix). Baileys
+// resolves sendMessage on the local WS write; the dispatch disconnects right
+// after this RPC returns, so without this wait the final stanza can be
+// dropped server-side while the app already went green (2026-11-15 PTT drop;
+// every green-but-invisible image). Waits for status >= 2 (server receipt)
+// for up to 8s — non-fatal on timeout, success semantics unchanged.
+const RECEIPT_WAIT_MS = 8000;
+
+async function awaitServerReceipt(sent, what) {
+  const keyId = sent?.key?.id;
+  if (!keyId) return null;
+  const receipt = await waitForMessageReceipt(keyId, RECEIPT_WAIT_MS);
+  if (receipt) {
+    console.log(`[Delivra sender] ${what} server receipt confirmed: key.id=${keyId} status=${receipt.status}`);
+  } else {
+    console.warn(`[Delivra sender] ${what} sent but NO server receipt within ${RECEIPT_WAIT_MS}ms (key.id=${keyId}) — message may have been dropped`);
+  }
+  return receipt;
+}
 
 // A message can combine voice note + document + text, sent as separate
 // WhatsApp messages. If part 2 fails after part 1 went out, a naive retry
@@ -46,6 +66,8 @@ async function sendMessage(payload) {
   }
 
   const done = trackParts(messageId);
+  let receiptConfirmed = false;
+  let lastKeyId = null;
 
   try {
     const jid = normalizeJid(contactJid);
@@ -111,6 +133,8 @@ async function sendMessage(payload) {
       const vnSent = await sock.sendMessage(jid, voiceContent);
       done.add('voice');
       console.log('[Delivra sender] Voice note sent successfully' + (vnSent?.key?.id ? ` (key.id=${vnSent.key.id})` : ''));
+      if (await awaitServerReceipt(vnSent, 'Voice note')) receiptConfirmed = true;
+      lastKeyId = vnSent?.key?.id ?? lastKeyId;
     }
 
     // ── File attachment (image / document) ───────────────────────────────
@@ -163,6 +187,8 @@ async function sendMessage(payload) {
         const imgSent = await sock.sendMessage(jid, content);
         if (content.caption) done.add('text');
         console.log('[Delivra sender] Image sent successfully' + (imgSent?.key?.id ? ` (key.id=${imgSent.key.id})` : ''));
+        if (await awaitServerReceipt(imgSent, 'Image')) receiptConfirmed = true;
+        lastKeyId = imgSent?.key?.id ?? lastKeyId;
       } else {
         const docSent = await sock.sendMessage(jid, {
           document: fs.readFileSync(attachmentPath),
@@ -170,6 +196,8 @@ async function sendMessage(payload) {
           fileName: attachmentDisplayName || 'attachment',
         });
         console.log('[Delivra sender] Document sent successfully' + (docSent?.key?.id ? ` (key.id=${docSent.key.id})` : ''));
+        if (await awaitServerReceipt(docSent, 'Document')) receiptConfirmed = true;
+        lastKeyId = docSent?.key?.id ?? lastKeyId;
       }
       done.add('doc');
     }
@@ -182,7 +210,10 @@ async function sendMessage(payload) {
     }
 
     completedParts.delete(messageId);
-    return { success: true, messageId };
+    // deliveryConfirmed = at least one server receipt (status >= 2) arrived
+    // within the window. Kotlin logs it and keeps the staged file when false,
+    // but green semantics are unchanged (success = send promise resolved).
+    return { success: true, messageId, deliveryConfirmed: receiptConfirmed, keyId: lastKeyId };
 
   } catch (err) {
     console.error('[Delivra sender] sendMessage error:', err.message, err.stack || '');

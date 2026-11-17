@@ -108,6 +108,30 @@ fun SettingsScreen(
             // ── WhatsApp Link status ─────────────────────────────────────────
             item {
                 DiagnosticCard(title = "WhatsApp Connection") {
+                    // LINKED = session credentials saved on disk (survives
+                    // reboot/app restart). Deliberately independent of the live
+                    // socket state: the engine connects on demand only while a
+                    // message is being sent (§2.5 battery design), so
+                    // "Disconnected (idle)" between sends is NORMAL even when
+                    // WhatsApp is fully linked.
+                    val linked = remember {
+                        runCatching {
+                            val creds = File(context.filesDir, "wa_session/creds.json")
+                            creds.exists() && creds.readText().contains("\"registered\":true")
+                        }.getOrDefault(false)
+                    }
+                    val (linkLabel, linkColor) = when {
+                        connectionState == NodeBridge.ConnectionState.LOGGED_OUT ->
+                            "No — Re-link Required" to StatusFailedFg
+                        linked -> "Yes ✓" to StatusSentFg
+                        else -> "No — Not Yet Linked" to StatusFailedFg
+                    }
+                    DiagnosticRow(
+                        icon = Icons.Outlined.Link,
+                        label = "WhatsApp linked",
+                        value = linkLabel,
+                        valueColor = linkColor
+                    )
                     val (stateLabel, stateColor) = when (connectionState) {
                         NodeBridge.ConnectionState.CONNECTED -> "Connected ✓" to StatusSentFg
                         NodeBridge.ConnectionState.CONNECTING -> "Connecting…" to StatusPendingFg
@@ -121,8 +145,22 @@ fun SettingsScreen(
                         value = stateLabel,
                         valueColor = stateColor
                     )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Delivra connects to WhatsApp only while a scheduled " +
+                                "message is actually being sent. Between sends " +
+                                "\"Disconnected (idle)\" is normal — your WhatsApp " +
+                                "link stays saved on this phone and messages " +
+                                "still deliver.",
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        lineHeight = 18.sp
+                    )
+                    // Offer the link flow when it can actually help: logged out,
+                    // or nothing linked yet. Hiding it for a linked-but-idle
+                    // session removes the old "is it broken?" confusion.
                     if (connectionState == NodeBridge.ConnectionState.LOGGED_OUT ||
-                        connectionState == NodeBridge.ConnectionState.DISCONNECTED) {
+                        (!linked && connectionState == NodeBridge.ConnectionState.DISCONNECTED)) {
                         Spacer(Modifier.height(8.dp))
                         Box(
                             modifier = Modifier
@@ -137,7 +175,7 @@ fun SettingsScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "Link WhatsApp",
+                                if (connectionState == NodeBridge.ConnectionState.LOGGED_OUT) "Re-link WhatsApp" else "Link WhatsApp",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = RoseDeep
